@@ -67,3 +67,45 @@ def cas_int(addr_ptr, expected: int, new_val: int) -> bool:
         # weak=0 (strong), success_memorder=5 (seq_cst), failure_memorder=5
         expected_ptr = ctypes.pointer(ctypes.c_int(expected))
         return _cas_func(addr_ptr, expected_ptr, new_val, 0, 5, 5)
+
+
+_cas8_func = None
+
+def _init_cas8():
+    """加载 64 位 CAS: __atomic_compare_exchange_8"""
+    global _cas8_func
+    if _cas_style == "windows":
+        kernel32 = ctypes.windll.kernel32
+        _cas8_func = kernel32.InterlockedCompareExchange64
+        _cas8_func.argtypes = [ctypes.POINTER(ctypes.c_longlong), ctypes.c_longlong, ctypes.c_longlong]
+        _cas8_func.restype = ctypes.c_longlong
+    else:
+        for libname in ("libatomic.so.1", "libatomic.so"):
+            try:
+                lib = ctypes.CDLL(libname)
+                _cas8_func = lib.__atomic_compare_exchange_8
+                _cas8_func.argtypes = [
+                    ctypes.POINTER(ctypes.c_longlong),
+                    ctypes.POINTER(ctypes.c_longlong),
+                    ctypes.c_longlong,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                ]
+                _cas8_func.restype = ctypes.c_bool
+                return
+            except (OSError, AttributeError):
+                continue
+        raise RuntimeError("No 64-bit atomic CAS found")
+
+_init_cas8()
+
+
+def cas_int64(addr_ptr, expected: int, new_val: int) -> bool:
+    """对 int64 指针执行原子比较交换。"""
+    if _cas_style == "windows":
+        old = _cas8_func(addr_ptr, new_val, expected)
+        return old == expected
+    else:
+        expected_ptr = ctypes.pointer(ctypes.c_longlong(expected))
+        return _cas8_func(addr_ptr, expected_ptr, new_val, 0, 5, 5)
