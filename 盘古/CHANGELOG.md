@@ -1,5 +1,23 @@
 # 变更日志
 
+## [0.11.0] - 2026-07-02 "索引"
+### 新增 - 性能优化
+- **谓词索引 (predicate_index)**: 规则按 head 谓词名建立 dict 索引，回溯时 O(1) 定位候选规则
+- **事实索引 (fact_index)**: 事实按谓词名建立 dict 索引，回溯时 O(1) 定位候选事实
+- **一致性检查缓存**: `KB.get_consistency_report()` 首次计算后缓存 `HealthReport`，KB 变更时自动失效（脏标记），二次调用 O(1) 返回
+
+### 修复
+- **Arbiter 重复 `select_methods`**: v0.10.0 中 `Arbiter` 类含两个同名方法，导致带历史学习的版本（降权/排序逻辑）被无声地覆盖。v0.11.0 删除冗余定义，恢复历史学习功能
+- **Arbiter `sort_key` 中 `_goal_type` 未设置**: `_goal_type` 在排序完成后才写入 `_last_analysis`，导致所有排序均退化为默认值 `'unknown'`，历史反馈无效。修复为在排序前提前计算 `_goal_type`
+- **`perceive()` 中重复 `restore_superseded` 处理器**: 两个同名 `elif` 分支共存，第二个永远不可达。删除冗余分支
+- **MCPBridge 缺失 `generate_token` / `revoke_token` / `list_callers`**: 这三个方法在 `perceive()` 中被调用但从未定义（`AttributeError`）。已补全实现，含令牌注册表、白名单联动、权限级别记录
+
+### 变更
+- `ConsistencyChecker` 直接调用改为 `kb.get_consistency_report()` 以利用缓存（`CognitiveEngine._self_refine`、`DreamEngine._dream_once`、`RealitySupervisor.validate`、`SuperBrainAgent.perceive`）
+- 新增测试文件 `test_pangu_v011.py`（38个单元测试，覆盖索引、缓存、历史学习修复、MCP令牌管理）
+- 新增 `conftest.py` 修复 pytest 无法收集 `test_pangu_v0.10.0.py`（文件名含点号）的问题
+- 版本标识升级为 `v0.11.0 "索引"`
+
 ## [0.10.0] - 2026-06-13 "超我"
 ### 新增 - 16种认知架构
 - **CoT** (Chain of Thought): 逐步推理链

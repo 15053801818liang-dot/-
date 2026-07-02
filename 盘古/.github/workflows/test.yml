@@ -15,7 +15,9 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Run unit tests
+    - name: Run unit tests (v0.10.0)
       run: cd 盘古 && python test_pangu_v0.10.0.py
     - name: Run comprehensive tests
       run: cd 盘古 && python test_comprehensive.py
+    - name: Run unit tests (v0.11.0)
+      run: cd 盘古 && python test_pangu_v011.py
