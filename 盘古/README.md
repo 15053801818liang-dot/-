@@ -1,8 +1,204 @@
 # 盘古 (Pangu) — 主权可控的符号推理引擎
 
-**版本**: v0.10.0 "超我" (Superego)  
+**版本**: v0.11.0 "知行" (Knowledge-Action)  
 **理念**: 零外部依赖 · 完全本地运行 · 主权归用户所有  
 **许可证**: MIT
+
+盘古是一个 **零依赖、纯符号推理引擎**，在单一 Python 文件（仅标准库）内实现了 16 种认知架构、4D 持久记忆、梦境引擎、知识图谱、现实监督器、MCP 协议桥接、OpenClaw 配置体系和 ds4 本地推理引擎接口等模块。它不调用任何外部 API，所有推理、学习和记忆均在本地完成，用户的身份主权由骨骼守护（BoneGuard）永久保护。
+
+---
+
+## 快速开始
+
+### 环境要求
+
+- Python 3.8+（仅标准库，无第三方依赖）
+
+### 运行
+
+```bash
+cd /d/神话/神话项目2/盘古
+python pangu_v0.11.0.py
+```
+
+启动后进入交互式命令行，输入命令与盘古对话。
+
+### 命令表
+
+| 命令 (中文) | 命令 (English) | 作用 |
+|-------------|----------------|------|
+| `祖父(a, _Who)` | `grandparent(a, _Who)` | 查询推理（变量以下划线或问号开头） |
+| `学习规则 父亲(张三, 张父).` | `learn rule parent(X, Y) :- fact(X, Y).` | 显式学习事实或规则 |
+| `正确` | `confirm` / `yes` | 确认上一次查询答案（用于隐式学习 + 仲裁反馈） |
+| `错误` | `reject` / `no` | 报告上一次答案错误（触发反例学习 + 仲裁降权） |
+| `检查一致性` | `check_consistency` / `health` | 输出规则库健康报告 |
+| `记住 母亲(张三, 张母).` | `remember mother(zhang3, zhang_mom).` | 存储事实到持久记忆 |
+| `搜索 ...` | `search ...` | 知识图谱混合搜索 |
+| `梦境` | `dream` | 立即触发一次梦境反思 |
+| `梦境对比 N` | `dream_compare N` | 比较待确认项中的新旧规则差异 |
+| `技能` | `skills` | 列出已自动创建的技能 |
+| `reason grandparent(a,_Z) via tot` | -- | 用指定推理方法查询 |
+| `重置仲裁` | `reset_arbiter` | 重置仲裁器历史统计 |
+| `mcp_add SanLife admin` | -- | 添加 MCP 调用者并授予权限 |
+| `mcp_remove SanLife` | -- | 移除 MCP 调用者 |
+| `mcp_list` | -- | 列出所有 MCP 调用者 |
+| `放弃身份` | `override identity` | 触发骨骼守护拦截（测试用） |
+| `exit` | `exit` | 退出 |
+
+### 变量与谓词约定
+
+- 变量必须以 `_` 或 `?` 开头（例如 `_X`、`?Who`）
+- 常量不需要引号，支持数字和字符串
+- 规则文件扩展名 `.super`，存放于 `rules/` 目录
+
+---
+
+## 功能亮点
+
+### OpenClaw 配置体系 (v0.11.0 新增)
+
+启动时自动加载三个可选 Markdown 配置文件：
+
+| 文件 | 作用 | 关键字段 |
+|------|------|----------|
+| `SOUL.md` | 身份与价值观 | `name`（身份名）、`sovereignty`、`purpose` |
+| `AGENTS.md` | 模块开关 | `dream_engine`、`arbiter`、`reasoning_methods` |
+| `USER.md` | 用户偏好 | `language`、`memory_limit`、`show_think_log` |
+
+文件不存在时使用内置默认值，不影响启动。可通过 `ConfigLoader.write_defaults()` 生成模板。
+
+### ds4 本地推理引擎接口 (v0.11.0 新增)
+
+`LocalInferenceEngine` 提供可编程 Python API，适合嵌入到其他应用中：
+
+```python
+from pangu_v0_11_0 import LocalInferenceEngine
+
+engine = LocalInferenceEngine()
+print(engine.infer("grandparent(a, _Who)"))
+# {"success": True, "result": "{_Who: c}", "method": "cot", ...}
+
+engine.learn("king(Arthur).")
+engine.remember("ally(Arthur, Lancelot).")
+print(engine.health())
+engine.stop()
+```
+
+与 MCP 协议桥接的区别：MCP 通过 stdin/stdout JSON 行协议供外部进程调用；`LocalInferenceEngine` 是进程内 Python 直接调用 API。
+
+### 16 种认知架构
+
+| 方法 | 简称 | 说明 |
+|------|------|------|
+| Chain of Thought | CoT | 逐步推理链，子目标分解 |
+| Tree of Thought | ToT | 多路径分支广度优先搜索 |
+| Reason + Act | ReAct | 推理与行动交替迭代 |
+| Monte Carlo Tree Search | MCTS | 随机模拟 + UCB 选择 |
+| Socratic Dialogue | Socratic | 提问-回答-追问，支持多轮交互 |
+| Decomposed Reasoning | Decomp | 复杂目标拆解为子目标 |
+| Self-Refine | Refine | 生成→评估→改进 |
+| Recursive Reasoning | Recursive | 深度优先递归分解 |
+| Analogical Reasoning | Analogy | 查找相似结构进行类比 |
+| Abductive Reasoning | Abductive | 从结果推导可能原因 |
+| Inductive Reasoning | Inductive | 从事实归纳公共模式 |
+| Dialectic Reasoning | Dialectic | 正题-反题-合题辩证 |
+| Counterfactual Reasoning | Counter | "如果...会怎样"反事实假设 |
+| Step-Back Abstraction | StepBack | 步退到抽象层，再回到具体 |
+| Contradiction Detection | Contradict | 检查结论是否自洽 |
+| Ensemble Voting | Ensemble | 多方法集成投票，取最优 |
+
+### 仲裁器 (Arbiter)
+
+自动分析查询特征，选择最合适的推理方法：
+- 事实查询 → CoT + Decomp
+- 因果查询 → Abductive + MCTS
+- 反事实查询 → Counterfactual + Socratic
+- 验证查询 → Contradict + Self-Refine
+- 归纳查询 → Inductive + Analogy
+- 复杂决策 → Ensemble + Dialectic
+- 支持基于用户反馈的历史学习和降权机制（滑动窗口 20 次）
+
+### 4D 持久记忆
+
+| 层次 | 文件 | 说明 |
+|------|------|------|
+| 身份层 | `IDENTITY.json` | 主权姓名、版本号 |
+| 陈述层 | `MEMORY.json` | 关键事实存储（上限 1000 条，FIFO 淘汰） |
+| 技能层 | `SKILLS.json` | 自动创建的技能定义 |
+| 对话层 | `CONVERSATION.jsonl` | 对话历史日志（JSONL 格式） |
+
+### 梦境引擎、知识图谱、现实监督器、MCP 桥接
+
+详见 v0.10.0 说明，功能保持不变。
+
+---
+
+## 架构概览
+
+盘古由 `SuperBrainAgent` 主控类整合所有模块。v0.11.0 新增 `ConfigLoader`（OpenClaw 对齐）在启动时读取 SOUL.md/AGENTS.md/USER.md，将身份名称注入 BoneGuard。`LocalInferenceEngine`（ds4 对齐）封装 SuperBrainAgent，提供线程安全的 Python 库 API。详见 `ARCHITECTURE.md`。
+
+---
+
+## 性能说明
+
+盘古 v0.11.0 为单线程纯 Python 实现，所有组件运行在标准库之上，无任何第三方依赖。推理性能取决于规则库规模和查询复杂度。对于典型家庭关系推理（数十条事实/规则），单次查询响应在毫秒级。`MAX_SOLUTIONS` 和 `MAX_DEPTH` 配置项可调节回溯搜索的深度和广度。
+
+---
+
+## 项目结构
+
+```
+盘古/
+├── pangu_v0.11.0.py       # 主程序（单文件，零依赖）
+├── pangu_v0.10.0.py       # 上一版本
+├── SOUL.md                # OpenClaw 身份配置模板
+├── AGENTS.md              # OpenClaw 模块配置模板
+├── USER.md                # OpenClaw 用户偏好模板
+├── rules/
+│   └── builtin.super      # 内置规则文件（扩展用）
+├── memory/
+│   ├── IDENTITY.json      # 4D记忆：身份层
+│   ├── MEMORY.json        # 4D记忆：陈述层
+│   ├── SKILLS.json        # 4D记忆：技能层
+│   ├── CONVERSATION.jsonl # 4D记忆：对话层
+│   └── ARBITER_HISTORY.json # 仲裁器历史统计
+├── knowledge/
+│   └── graph.json         # 知识图谱持久化
+├── test_pangu.py          # 基础测试
+├── test_pangu_v0.10.0.py  # v0.10.0 测试（46个）
+├── test_pangu_v0.11.0.py  # v0.11.0 测试（48个）
+├── test_comprehensive.py  # 全面测试（123个）
+├── README.md              # 本文件
+├── ARCHITECTURE.md        # 架构文档
+├── MCP_API.md             # MCP 协议参考
+└── CHANGELOG.md           # 版本历史
+```
+
+---
+
+## 版本历史
+
+| 版本 | 代号 | 日期 |
+|------|------|------|
+| v0.11.0 | 知行 (Knowledge-Action) | 2026-07-02 |
+| v0.10.0 | 超我 (Superego) | 2026-06-13 |
+| v0.9.0 | 自知 | 2025-04-02 |
+| v0.8.0 | 归因 | 2025-03-15 |
+| v0.7.0 | 明理 | 2025-02-28 |
+| v0.6.0 | 授业 | 2025-02-10 |
+| v0.5.0 | 自知 | 2025-01-20 |
+| v0.4.0 | 筑基 | 2025-01-05 |
+| v0.3.0 | 通幽 | 2024-12-15 |
+| v0.2.0 | 立骨 | 2024-12-01 |
+| v0.1.0 | 开天 | 2024-11-20 |
+
+详见 `CHANGELOG.md`。
+
+---
+
+## 许可
+
+MIT License. 详情见项目 LICENSE 文件。
 
 盘古是一个 **零依赖、纯符号推理引擎**，在单一 Python 文件（仅标准库）内实现了 16 种认知架构、4D 持久记忆、梦境引擎、知识图谱、现实监督器、MCP 协议桥接和自动技能创建等模块。它不调用任何外部 API，所有推理、学习和记忆均在本地完成，用户的身份主权由骨骼守护（BoneGuard）永久保护。
 

@@ -1,5 +1,41 @@
 # 变更日志
 
+## [0.11.0] - 2026-07-02 "知行"
+### 新增 - OpenClaw 配置体系对齐
+- **ConfigLoader** — 零依赖 Markdown 配置文件解析器
+  - `SOUL.md`：身份名称、版本、主权声明、价值观与原则
+  - `AGENTS.md`：模块开关（dream_engine / knowledge_graph 等）及推理方法列表
+  - `USER.md`：用户偏好（语言、输出格式、记忆上限、梦境间隔等）
+  - 文件不存在时使用内置默认值，不抛出异常
+  - `write_defaults()` 方法可自动生成模板文件
+- **SuperBrainAgent** 在启动时自动加载配置，身份名称由 `SOUL.md` 驱动
+
+### 新增 - ds4 本地推理引擎接口对齐
+- **LocalInferenceEngine** — 可编程 Python API，与 MCP 协议桥接互补
+  - `infer(goal, method)` — 单目标推理，支持 `method="auto"`（仲裁器自动选择）
+  - `infer_all(goal)` — 16 种方法并行推理，返回结果对比
+  - `learn(rule, force)` — 学习规则/事实（事实直接进 KB，无孤儿检查）
+  - `remember(fact)` — 持久化事实到 4D 记忆并加入 KB
+  - `recall(query)` — 从持久记忆召回相关条目
+  - `search(query)` — 知识图谱混合搜索
+  - `health()` — 知识库健康报告（含可信度评分）
+  - `dream()` — 立即触发梦境反思
+  - `soul_info()` / `agents_info()` / `user_prefs()` — 配置内省
+  - 内置线程锁，线程安全
+  - `stop()` 优雅关闭后台梦境引擎
+
+### 新增 - 配置模板文件
+- `SOUL.md` — 身份与价值观默认模板
+- `AGENTS.md` — 模块配置默认模板
+- `USER.md` — 用户偏好默认模板
+
+### 测试
+- 新增 `test_pangu_v0.11.0.py`（48 个测试，100% 通过）
+  - ConfigLoader 全路径覆盖（默认值、文件加载、类型解析、write_defaults）
+  - LocalInferenceEngine 全方法覆盖（推理、学习、记忆、搜索、健康、梦境）
+  - SuperBrainAgent 配置集成测试
+  - 版本标识验证
+
 ## [0.10.0] - 2026-06-13 "超我"
 ### 新增 - 16种认知架构
 - **CoT** (Chain of Thought): 逐步推理链

@@ -5,7 +5,7 @@
 ## 快速启动
 ```bash
 cd 盘古
-python pangu_v0.10.0.py
+python pangu_v0.11.0.py
 ```
 
 ## 文档

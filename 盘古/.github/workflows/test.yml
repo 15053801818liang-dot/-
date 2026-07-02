@@ -17,5 +17,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Run unit tests
       run: cd 盘古 && python test_pangu_v0.10.0.py
+    - name: Run v0.11.0 tests
+      run: cd 盘古 && python test_pangu_v0.11.0.py
     - name: Run comprehensive tests
       run: cd 盘古 && python test_comprehensive.py
