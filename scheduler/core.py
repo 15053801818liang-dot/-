@@ -1,11 +1,15 @@
 """Vyukov 有界 MPMC 无锁队列 + 分布式调度器"""
 
 import ctypes
+import logging
 import struct
 import time
 import multiprocessing.shared_memory as shm
 from typing import Optional, Any
 from scheduler.atomic import cas32, cas64
+from scheduler.exceptions import NotLeaderError
+
+logger = logging.getLogger(__name__)
 
 # 槽位布局: sequence(8B) + data(8B)
 SLOT_SIZE = 16
@@ -158,6 +162,57 @@ class SharedMemoryMPMCQueue:
             self._owned = False
 
 
-# Stub for DistributedSchedulerV3 referenced in __init__.py
 class DistributedSchedulerV3:
-    pass
+    """
+    分布式调度器：将 SharedMemoryMPMCQueue（跨进程无锁任务队列）
+    与 EtcdLeaseManager（Leader 选举 + Fencing Token）组合在一起。
+
+    - 未提供 lease_manager 时，push/steal 直接操作本地/共享内存队列（单机模式）。
+    - 提供 lease_manager 时，push 前会校验当前节点是否持有有效的 Leader
+      租约，并附带 fencing token 一并写入，防止脑裂节点写入脏数据。
+    """
+
+    def __init__(
+        self,
+        capacity: int = 8192,
+        shm_name: Optional[str] = None,
+        lease_manager: Optional[Any] = None,
+    ):
+        self.queue = SharedMemoryMPMCQueue(capacity=capacity, shm_name=shm_name)
+        self.lease_manager = lease_manager
+
+    @property
+    def shm_name(self) -> str:
+        return self.queue.shm_name
+
+    def start(self):
+        """启动 Leader 选举（若配置了 lease_manager）。"""
+        if self.lease_manager is not None:
+            self.lease_manager.start()
+
+    def stop(self):
+        """停止 Leader 选举并释放队列资源。"""
+        if self.lease_manager is not None:
+            self.lease_manager.stop()
+
+    def push(self, data: int) -> bool:
+        """入队。若配置了 lease_manager，仅 Leader 可写入，否则抛出 NotLeaderError。"""
+        if self.lease_manager is not None:
+            self.lease_manager.assert_active_leader_and_get_fence()
+        return self.queue.push(data)
+
+    def steal(self) -> Optional[int]:
+        """出队，任意节点均可消费（无需 Leader 身份）。"""
+        return self.queue.steal()
+
+    def size(self) -> int:
+        return self.queue.size()
+
+    def stats(self) -> dict:
+        return self.queue.stats()
+
+    def close(self):
+        self.queue.close()
+
+    def unlink(self):
+        self.queue.unlink()
