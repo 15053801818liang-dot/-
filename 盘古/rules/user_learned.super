@@ -1,0 +1,15 @@
+orphan('\'"\\\'_X\\\'"\'') :- zzz('\'"\\\'_X\\\'"\'').
+foo("'_X'") :- parent(_X, b).
+persistent_pred('_X') :- parent(_X, b).
+orphan(_X) :- zzz(_X).
+foo(_X) :- parent(_X, b).
+persistent_pred(_X) :- parent(_X, b).
+orphan(_X) :- zzz(_X).
+foo(_X) :- parent(_X, b).
+persistent_pred(_X) :- parent(_X, b).
+orphan(_X) :- zzz(_X).
+foo(_X) :- parent(_X, b).
+persistent_pred(_X) :- parent(_X, b).
+orphan(_X) :- zzz(_X).
+foo(_X) :- parent(_X, b).
+persistent_pred(_X) :- parent(_X, b).
