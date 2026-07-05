@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chanlun.backtest import run_chanlun_backtest
-from chanlun.data_loader import load_csv
+from chanlun.data_loader import load_market
 from tasks.task_base import TaskBase, artifact_dir
 
 
@@ -27,7 +27,7 @@ class ChanlunBacktest(TaskBase):
         with open(config_path, encoding="utf-8") as f:
             config = json.load(f)
 
-        bars = load_csv(market_path)
+        bars = load_market(market_path)
         result = run_chanlun_backtest(bars, config)
 
         out_dir = artifact_dir(workspace_dir, dag_id)
@@ -43,8 +43,13 @@ class ChanlunBacktest(TaskBase):
                 "strokes_count": m.get("strokes_count", 0),
                 "total_trades": m.get("total_trades", 0),
                 "win_rate": m.get("win_rate", 0),
+                "win_rate_gross": m.get("win_rate_gross", 0),
                 "sharpe": m.get("sharpe", 0),
                 "total_return": m.get("total_return", 0),
+                "total_return_gross": m.get("total_return_gross", 0),
+                "friction_drag": m.get("friction_drag", 0),
+                "total_commission": m.get("total_commission", 0),
+                "total_slippage_cost": m.get("total_slippage_cost", 0),
                 "max_drawdown": m.get("max_drawdown", 0),
             },
         }

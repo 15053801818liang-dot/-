@@ -3,6 +3,7 @@ package scheduler
 import (
 	"fmt"
 	"path/filepath"
+	"time"
 )
 
 // Node DAG 节点定义。
@@ -25,12 +26,15 @@ type DAG struct {
 type RunResult struct {
 	Artifacts map[string]interface{}
 	Report    string
+	Metrics   RunMetrics
 }
 
 func (d *DAG) Run() (*RunResult, error) {
+	finishMetrics, _ := StartRunMetrics()
 	artifacts := make(map[string]interface{})
 	ws := filepath.Join(d.Executor.ProjectRoot, d.Workspace)
 	for _, node := range d.Nodes {
+		nodeStart := time.Now()
 		d.Auditor.Log(node.ID, "EXEC_REQUESTED", "CHECK_PASSED", "pre-flight ok")
 		d.Auditor.Log(node.ID, "RUNNING", "IN_PROGRESS", "")
 
@@ -63,7 +67,8 @@ func (d *DAG) Run() (*RunResult, error) {
 			}
 		}
 		artifacts[node.ID] = entry
-		d.Auditor.Log(node.ID, "COMPLETED", "SUCCESS", out.Message)
+		elapsed := time.Since(nodeStart).Seconds()
+		d.Auditor.Log(node.ID, "COMPLETED", "SUCCESS", fmt.Sprintf("ok elapsed=%.3fs", elapsed))
 	}
 
 	report := ""
@@ -73,5 +78,6 @@ func (d *DAG) Run() (*RunResult, error) {
 		}
 	}
 	_ = ws
-	return &RunResult{Artifacts: artifacts, Report: report}, nil
+	metrics := finishMetrics()
+	return &RunResult{Artifacts: artifacts, Report: report, Metrics: metrics}, nil
 }

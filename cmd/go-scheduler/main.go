@@ -25,8 +25,16 @@ func main() {
 	if dagID == "" {
 		dagID = "chanlun_btc_demo"
 	}
+	sourcePath := os.Getenv("SOURCE_PATH")
+	if sourcePath == "" {
+		sourcePath = "data/BTCUSDT_5m.csv"
+	}
 
-	auditor := scheduler.NewAuditor("总司令")
+	logDir := filepath.Join(workspace, "logs")
+	_ = os.MkdirAll(logDir, 0o755)
+	auditPath := filepath.Join(logDir, "yushitai_audit.jsonl")
+
+	auditor := scheduler.NewAuditor("总司令", auditPath)
 	executor := scheduler.NewJSONExecutor(root)
 
 	dag := &scheduler.DAG{
@@ -39,7 +47,8 @@ func main() {
 				ID:     "load_market_data",
 				Script: "tasks/load_market_data.py",
 				Params: map[string]interface{}{
-					"source_path": "data/BTCUSDT_5m.csv",
+					"source_path":     sourcePath,
+					"prefer_parquet":  true,
 				},
 			},
 			{
@@ -68,4 +77,6 @@ func main() {
 		report = filepath.Join(workspace, "reports", dagID+".md")
 	}
 	fmt.Printf("✅ 调度闭环完成，回测报告: %s\n", report)
+	fmt.Printf("⏱  总耗时: %.2fs | Go RSS: %.1f MB | 审计日志: %s\n",
+		result.Metrics.ElapsedSec, result.Metrics.RSSMB, auditPath)
 }
