@@ -27,6 +27,25 @@ class WriteReplayReport(TaskBase):
         metrics = result.get("metrics", {})
         audit = result.get("audit", {})
         load_summary = load_art.get("summary") or load_art.get("payload", {}).get("summary", {})
+        clean_audit = load_summary.get("clean_audit", {})
+
+        pangu_art = artifacts.get("pangu_inference", {})
+        pangu_payload = pangu_art.get("payload") or {}
+        pangu_text = (
+            pangu_art.get("pangu_logic_interpretation")
+            or pangu_payload.get("pangu_logic_interpretation")
+            or "无盘古推理结果"
+        )
+        market_state = (
+            pangu_art.get("market_state_code")
+            or pangu_payload.get("market_state_code")
+            or "UNKNOWN"
+        )
+        confidence = (
+            pangu_art.get("confidence")
+            or pangu_payload.get("confidence")
+            or 0.0
+        )
 
         reports_dir = Path(workspace_dir) / "reports"
         reports_dir.mkdir(parents=True, exist_ok=True)
@@ -46,6 +65,8 @@ class WriteReplayReport(TaskBase):
             f"|------|-----|",
             f"| K 线数 | {load_summary.get('bars', audit.get('bars', 'N/A'))} |",
             f"| 数据源 | {load_summary.get('source', 'N/A')} |",
+            f"| 清洗丢弃 | {clean_audit.get('dropped_invalid', 0)} 无效 / {clean_audit.get('dropped_duplicate', 0)} 重复 |",
+            f"| 分析模式 | {audit.get('analyze_mode', 'N/A')} ({audit.get('analyze_seconds', '?')}s) |",
             f"| 首收盘 | {load_summary.get('first_close', 'N/A')} |",
             f"| 末收盘 | {load_summary.get('last_close', 'N/A')} |",
             "",
@@ -78,10 +99,17 @@ class WriteReplayReport(TaskBase):
             f"| 摩擦拖累 | {metrics.get('friction_drag', 0)} |",
             f"| 成交笔数 | {metrics.get('total_trades', 0)} |",
             "",
+            "## 盘古逻辑解读",
+            "",
+            pangu_text,
+            "",
+            f"- **市场状态码**: `{market_state}`",
+            f"- **置信度**: {float(confidence):.2f}",
+            "",
             "## 御史台审计声明",
             "",
             "- 本报告由 Go 调度器驱动 Python 任务链自动生成",
-            "- 任务流: load_market_data → chanlun_backtest → write_replay_report",
+            "- 任务流: load_market_data → chanlun_backtest → pangu_inference → write_replay_report",
             "- 交易逻辑: chanlun 缠论买卖点 (非 SMA)",
             "- 结果 artifact 路径可追溯，支持复现",
             "",

@@ -59,6 +59,11 @@ func main() {
 				},
 			},
 			{
+				ID:     "pangu_inference",
+				Script: "tasks/pangu_inference.py",
+				Params: map[string]interface{}{},
+			},
+			{
 				ID:     "write_replay_report",
 				Script: "tasks/write_replay_report.py",
 				Params: map[string]interface{}{},

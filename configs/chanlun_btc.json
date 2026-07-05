@@ -6,5 +6,7 @@
   "initial_capital": 1000000,
   "commission": 0.0005,
   "slippage": 0.0001,
-  "description": "阿娇缠论新笔 — 缠论买卖点回测"
+  "incremental": true,
+  "incremental_threshold": 1000,
+  "description": "阿娇缠论新笔 — 增量分析 + 摩擦成本回测"
 }

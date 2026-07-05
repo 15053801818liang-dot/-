@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional
 
-from .analyzer import analyze
+from .incremental import analyze_auto, analyze_incremental
 from .models import Bar, StrokeStandard, TradePointType
 
 
@@ -177,11 +177,25 @@ def _simulate(bars: List[Bar], result, config: Dict[str, Any]) -> Dict[str, Any]
 
 def run_chanlun_backtest(bars: List[Bar], config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """缠论结构分析 + 含摩擦成本的信号回测主入口。"""
+    import time
+
     config = config or {}
     standard_name = config.get("stroke_standard", "new")
     standard = StrokeStandard.OLD if standard_name == "old" else StrokeStandard.NEW
+    threshold = int(config.get("incremental_threshold", 1000))
+    force_incremental = config.get("incremental", True)
 
-    result = analyze(bars, stroke_standard=standard)
+    t0 = time.perf_counter()
+    if force_incremental and len(bars) >= threshold:
+        result = analyze_incremental(bars, stroke_standard=standard)
+        mode = "incremental"
+    else:
+        from .analyzer import analyze
+
+        result = analyze(bars, stroke_standard=standard)
+        mode = "full"
+    analyze_sec = time.perf_counter() - t0
+
     out = _simulate(bars, result, config)
     out["structure"]["stroke_standard"] = standard.value
     out["audit"] = {
@@ -189,6 +203,8 @@ def run_chanlun_backtest(bars: List[Bar], config: Optional[Dict[str, Any]] = Non
         "version": "0.1.0",
         "stroke_standard": standard.value,
         "bars": len(bars),
+        "analyze_mode": mode,
+        "analyze_seconds": round(analyze_sec, 3),
         "commission": config.get("commission", 0),
         "slippage": config.get("slippage", 0),
         "initial_capital": config.get("initial_capital", 1.0),

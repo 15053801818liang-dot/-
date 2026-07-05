@@ -41,6 +41,8 @@ This repo contains **three independent products**:
   `SOURCE_PATH=data/BTCUSDT_5m_large.csv go run ./cmd/go-scheduler/`.
   Optional parquet: `pip install -r requirements-backtest.txt`.
   Import external CSV: `python3 scripts/import_market_csv.py /path/to/your.csv`.
+  Task chain: `load_market_data → chanlun_backtest → pangu_inference → write_replay_report`.
+  Pangu reasoner: `盘古/reasoner.py` (`cd 盘古 && python3 test_reasoner.py`).
 - Pangu tests are run **directly**, not via pytest (filenames contain dots).
   See `盘古/.github/workflows/test.yml`:
   `cd 盘古 && python3 test_pangu_v0.10.0.py && python3 test_comprehensive.py && python3 test_pangu_v011.py`.

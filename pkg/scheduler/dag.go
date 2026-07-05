@@ -65,6 +65,13 @@ func (d *DAG) Run() (*RunResult, error) {
 			if rp, ok := p["report_path"].(string); ok {
 				entry["report_path"] = rp
 			}
+			for _, key := range []string{
+				"pangu_logic_interpretation", "market_state_code", "confidence",
+			} {
+				if v, ok := p[key]; ok {
+					entry[key] = v
+				}
+			}
 		}
 		artifacts[node.ID] = entry
 		elapsed := time.Since(nodeStart).Seconds()

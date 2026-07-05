@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chanlun.data_loader import load_market, save_market
+from chanlun.data_clean import clean_bars
 from tasks.task_base import TaskBase, artifact_dir
 
 
@@ -26,20 +27,31 @@ class LoadMarketData(TaskBase):
         if not bars:
             raise ValueError("empty market data")
 
+        if params.get("clean", True):
+            bars, clean_audit = clean_bars(bars)
+            if not bars:
+                raise ValueError("all rows dropped after cleaning")
+        else:
+            clean_audit = None
+
         out_dir = artifact_dir(workspace_dir, dag_id)
         prefer_parquet = params.get("prefer_parquet", True)
         artifact_path = save_market(bars, out_dir / "market_data.parquet", prefer_parquet=prefer_parquet)
 
+        summary = {
+            "bars": len(bars),
+            "source": str(src.resolve()),
+            "format": Path(artifact_path).suffix.lstrip("."),
+            "load_seconds": round(load_sec, 3),
+            "first_close": bars[0].close,
+            "last_close": bars[-1].close,
+        }
+        if clean_audit:
+            summary["clean_audit"] = clean_audit.to_dict()
+
         return {
             "artifact_path": artifact_path,
-            "summary": {
-                "bars": len(bars),
-                "source": str(src.resolve()),
-                "format": Path(artifact_path).suffix.lstrip("."),
-                "load_seconds": round(load_sec, 3),
-                "first_close": bars[0].close,
-                "last_close": bars[-1].close,
-            },
+            "summary": summary,
         }
 
 
