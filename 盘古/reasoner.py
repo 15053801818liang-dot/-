@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from symbolic import SymbolicReasoningPipeline
+from superbrain_bridge import SuperBrainBridge
 
 
 def _load_json(path: Optional[str]) -> Dict[str, Any]:
@@ -22,9 +23,11 @@ def _load_json(path: Optional[str]) -> Dict[str, Any]:
 class PanguReasoner:
     """符号演绎智能体：chanlun 结构 → Fact 注入 → 规则演绎。"""
 
-    def __init__(self, kb_path: Optional[str] = None) -> None:
+    def __init__(self, kb_path: Optional[str] = None, use_superbrain: bool = True) -> None:
         path = Path(kb_path) if kb_path else None
+        self.use_superbrain = use_superbrain
         self.pipeline = SymbolicReasoningPipeline(path)
+        self.superbrain = SuperBrainBridge(path) if use_superbrain else None
 
     def reason_from_chanlun(
         self,
@@ -47,9 +50,13 @@ class PanguReasoner:
                 semantic_audit={},
                 deduction_path=[],
                 matched_rule=None,
+                arbiter_used=False,
+                candidate_rules=[],
             )
 
         deduction = self.pipeline.deduce(structure)
+        if self.superbrain:
+            deduction = self.superbrain.deduce(structure, deduction)
         logic_kb = deduction.get("logic_kb") or {}
         state_code = deduction["state_code"]
         confidence = float(deduction["confidence"])
@@ -82,6 +89,8 @@ class PanguReasoner:
         )
         semantic_audit["symbolic_facts"] = logic_kb.get("facts", [])
         semantic_audit["matched_rule"] = deduction.get("matched_rule")
+        semantic_audit["arbiter_used"] = deduction.get("arbiter_used", False)
+        semantic_audit["candidate_rules"] = deduction.get("candidate_rules", [])
 
         return self._pack(
             interpretation,
@@ -92,6 +101,8 @@ class PanguReasoner:
             semantic_audit=semantic_audit,
             deduction_path=deduction_path,
             matched_rule=deduction.get("matched_rule"),
+            arbiter_used=deduction.get("arbiter_used", False),
+            candidate_rules=deduction.get("candidate_rules", []),
         )
 
     def analyze(
@@ -176,6 +187,8 @@ class PanguReasoner:
             semantic_audit={},
             deduction_path=["FALLBACK metrics_only"],
             matched_rule=None,
+            arbiter_used=False,
+            candidate_rules=[],
         )
 
     def _pack(
@@ -188,6 +201,8 @@ class PanguReasoner:
         semantic_audit: Dict[str, Any],
         deduction_path: List[str],
         matched_rule: Optional[str],
+        arbiter_used: bool = False,
+        candidate_rules: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         return {
             "interpretation": interpretation,
@@ -195,6 +210,8 @@ class PanguReasoner:
             "confidence": confidence,
             "deduction_path": deduction_path,
             "matched_rule": matched_rule,
+            "arbiter_used": arbiter_used,
+            "candidate_rules": candidate_rules or [],
             "semantic_audit": semantic_audit,
             "structure_snapshot": {
                 "total_strokes": structure.get("total_strokes"),

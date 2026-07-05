@@ -140,6 +140,19 @@ def _format_deduction(template: str, logic_kb: Dict[str, Any]) -> str:
     )
 
 
+def _rule_priority(rule: dict) -> tuple:
+    req_all = len(rule.get("requires_all") or [])
+    req_any = len(rule.get("requires_any") or [])
+    specificity = req_all * 10 - (1 if req_any else 0)
+    return (specificity, float(rule.get("confidence", 0)))
+
+
+def _collect_matching_rules(tags: Set[str], rules: List[dict]) -> List[dict]:
+    matched = [r for r in rules if _rule_matches(r, tags)]
+    matched.sort(key=_rule_priority, reverse=True)
+    return matched
+
+
 class SymbolicReasoningPipeline:
     """符号演绎管道：Fact 注入 → 规则匹配 → 演绎路径。"""
 
@@ -156,11 +169,13 @@ class SymbolicReasoningPipeline:
             deduction_path.append(f"FACT {fact.predicate}({json.dumps(fact.args, ensure_ascii=False)})")
 
         matched = None
-        for rule in self.rules:
-            if _rule_matches(rule, tags):
-                matched = rule
-                deduction_path.append(f"MATCH rule={rule['id']} tags={sorted(tags)}")
-                break
+        all_matches = _collect_matching_rules(tags, self.rules)
+        if all_matches:
+            matched = all_matches[0]
+            if len(all_matches) > 1:
+                deduction_path.append(
+                    f"MULTI_MATCH {len(all_matches)} rules; first={all_matches[0]['id']}"
+                )
 
         if not matched:
             return {
@@ -171,6 +186,8 @@ class SymbolicReasoningPipeline:
                 "logic_kb": logic_kb,
                 "matched_rule": None,
             }
+
+        deduction_path.append(f"MATCH rule={matched['id']} tags={sorted(tags)}")
 
         div = logic_kb.get("divergence")
         sig = logic_kb.get("last_signal")

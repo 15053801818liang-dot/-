@@ -64,6 +64,7 @@ func main() {
 				Params: map[string]interface{}{
 					"symbolic_kb": "configs/pangu_symbolic_kb.json",
 					"mode":        "symbolic_deduction",
+					"use_superbrain": true,
 				},
 			},
 			{

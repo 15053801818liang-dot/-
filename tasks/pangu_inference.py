@@ -29,7 +29,8 @@ class PanguInference(TaskBase):
         clean_audit = load_summary.get("clean_audit")
 
         kb_path = params.get("symbolic_kb")
-        reasoner = PanguReasoner(kb_path=kb_path)
+        use_superbrain = params.get("use_superbrain", True)
+        reasoner = PanguReasoner(kb_path=kb_path, use_superbrain=use_superbrain)
         import time
 
         t_load = time.perf_counter()
@@ -76,6 +77,8 @@ class PanguInference(TaskBase):
             "semantic_audit": inference.get("semantic_audit", {}),
             "deduction_path": inference.get("deduction_path", []),
             "matched_rule": inference.get("matched_rule"),
+            "arbiter_used": inference.get("arbiter_used", False),
+            "candidate_rules": inference.get("candidate_rules", []),
             "summary": {
                 "state_code": inference["state_code"],
                 "confidence": inference["confidence"],

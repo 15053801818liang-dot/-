@@ -172,6 +172,13 @@ class WriteReplayReport(TaskBase):
         if matched_rule:
             lines.append(f"- **匹配规则**: `{matched_rule}`")
 
+        arbiter_used = pangu_art.get("arbiter_used") or pangu_payload.get("arbiter_used")
+        candidate_rules = pangu_art.get("candidate_rules") or pangu_payload.get("candidate_rules") or []
+        if arbiter_used:
+            lines.append("- **SuperBrain 仲裁**: 已启用 Arbiter 多规则冲突裁决")
+        if candidate_rules and len(candidate_rules) > 1:
+            lines.append(f"- **候选规则**: {', '.join(f'`{r}`' for r in candidate_rules)}")
+
         if deduction_path:
             lines.extend(["", "### 符号演绎路径", ""])
             for i, step in enumerate(deduction_path, 1):
