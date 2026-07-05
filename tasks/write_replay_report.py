@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""任务：生成可审计 Markdown 回测报告。"""
+
+from __future__ import annotations
+
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tasks.task_base import TaskBase, artifact_dir
+
+
+class WriteReplayReport(TaskBase):
+    def run(self, params, workspace_dir, dag_id, artifacts):
+        load_art = artifacts.get("load_market_data", {})
+        bt_art = artifacts.get("chanlun_backtest", {})
+        bt_path = bt_art.get("artifact_path") or bt_art.get("payload", {}).get("artifact_path")
+        if not bt_path or not Path(bt_path).exists():
+            raise ValueError("missing chanlun_backtest artifact")
+
+        with open(bt_path, encoding="utf-8") as f:
+            result = json.load(f)
+
+        metrics = result.get("metrics", {})
+        audit = result.get("audit", {})
+        load_summary = load_art.get("summary") or load_art.get("payload", {}).get("summary", {})
+
+        reports_dir = Path(workspace_dir) / "reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        report_path = reports_dir / f"{dag_id}.md"
+
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        lines = [
+            f"# 缠论回测报告 — {dag_id}",
+            "",
+            f"- 生成时间 (UTC): {now}",
+            f"- 引擎: {audit.get('engine', 'chanlun')} {audit.get('version', '')}",
+            f"- 成笔口径: {audit.get('stroke_standard', 'new')} (阿娇缠论新笔)",
+            "",
+            "## 数据摘要",
+            "",
+            f"| 字段 | 值 |",
+            f"|------|-----|",
+            f"| K 线数 | {load_summary.get('bars', audit.get('bars', 'N/A'))} |",
+            f"| 数据源 | {load_summary.get('source', 'N/A')} |",
+            f"| 首收盘 | {load_summary.get('first_close', 'N/A')} |",
+            f"| 末收盘 | {load_summary.get('last_close', 'N/A')} |",
+            "",
+            "## 缠论结构",
+            "",
+            f"| 指标 | 值 |",
+            f"|------|-----|",
+            f"| 分型数 | {metrics.get('fractals_count', 0)} |",
+            f"| 笔数 | {metrics.get('strokes_count', 0)} |",
+            f"| 中枢数 | {metrics.get('pivots_count', 0)} |",
+            f"| 买卖信号 | {metrics.get('signals_count', 0)} |",
+            "",
+            "## 回测指标",
+            "",
+            f"| 指标 | 值 |",
+            f"|------|-----|",
+            f"| 总收益 | {metrics.get('total_return', 0)} |",
+            f"| 夏普 | {metrics.get('sharpe', 0)} |",
+            f"| 最大回撤 | {metrics.get('max_drawdown', 0)} |",
+            f"| 胜率 | {metrics.get('win_rate', 0)} |",
+            f"| 成交笔数 | {metrics.get('total_trades', 0)} |",
+            "",
+            "## 御史台审计声明",
+            "",
+            "- 本报告由 Go 调度器驱动 Python 任务链自动生成",
+            "- 任务流: load_market_data → chanlun_backtest → write_replay_report",
+            "- 交易逻辑: chanlun 缠论买卖点 (非 SMA)",
+            "- 结果 artifact 路径可追溯，支持复现",
+            "",
+            f"原始结果 JSON: `{bt_path}`",
+        ]
+
+        report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        out_dir = artifact_dir(workspace_dir, dag_id)
+        meta_path = out_dir / "report_meta.json"
+        meta = {"report_path": str(report_path), "metrics": metrics, "audit": audit}
+        meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        return {
+            "artifact_path": str(meta_path),
+            "report_path": str(report_path),
+            "summary": metrics,
+        }
+
+
+if __name__ == "__main__":
+    WriteReplayReport().execute()

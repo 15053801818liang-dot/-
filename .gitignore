@@ -4,9 +4,13 @@ node_modules/
 memory/
 knowledge/
 *.json
+!configs/*.json
 !rules/*.super
 !TRUSTED.json
 benchmark_output/
 *.log
 .env
 .DS_Store
+workspace/artifacts/
+workspace/reports/
+!.gitkeep

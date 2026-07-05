@@ -34,7 +34,8 @@ from .models import (
     TradePoint,
     TradePointType,
 )
-from .stroke_rules import valid_stroke_pair
+from .backtest import run_chanlun_backtest
+from .data_loader import load_csv, save_csv
 from .pivot import find_pivots
 from .sample import sample_bars, sample_bars_pivot, synth_bars
 from .signals import find_divergences, generate_trade_points
@@ -71,5 +72,8 @@ __all__ = [
     "FractalType",
     "StrokeStandard",
     "valid_stroke_pair",
+    "run_chanlun_backtest",
+    "load_csv",
+    "save_csv",
     "__version__",
 ]

@@ -13,6 +13,10 @@ This repo contains **three independent products**:
 3. `chanlun/` — **缠论 (Chanlun)**: a zero-dependency, pure-stdlib technical
    analysis kernel (K线包含处理 → 分型 → 笔 → 中枢 → MACD背驰 → 买卖点).
    See `chanlun/README.md`.
+4. `cmd/go-scheduler/` + `pkg/scheduler/` — **Go DAG 调度器** driving Python
+   tasks in `tasks/` via JSON stdin/stdout (`JSONExecutor`). End-to-end demo:
+   `python3 scripts/generate_btc_csv.py && WORKSPACE_DIR=workspace go run ./cmd/go-scheduler/`
+   Report: `workspace/reports/chanlun_btc_demo.md`.
 
 ### Environment notes
 - Python 3.12; there is no `python` alias (use `python3`), and `python3-venv`
@@ -29,6 +33,10 @@ This repo contains **three independent products**:
 - chanlun tests: `python3 chanlun/test_chanlun.py` (or
   `python3 -m pytest chanlun/test_chanlun.py`); demo: `python3 -m chanlun.demo`.
   Zero deps — runs on stdlib alone.
+- Go chanlun backtest pipeline: `go run ./cmd/go-scheduler/` (requires Go 1.22+,
+  `python3` on PATH). Generates artifacts under `workspace/artifacts/` and
+  `workspace/reports/`. Uses `data/BTCUSDT_5m.csv` (regenerate via
+  `python3 scripts/generate_btc_csv.py`).
 - Pangu tests are run **directly**, not via pytest (filenames contain dots).
   See `盘古/.github/workflows/test.yml`:
   `cd 盘古 && python3 test_pangu_v0.10.0.py && python3 test_comprehensive.py && python3 test_pangu_v011.py`.
