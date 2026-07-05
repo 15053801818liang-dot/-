@@ -16,6 +16,7 @@ benchmark_output/
 .DS_Store
 workspace/artifacts/
 workspace/reports/
+suire/reports/
 workspace/logs/
 data/*_large.csv
 !.gitkeep

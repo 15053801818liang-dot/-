@@ -95,9 +95,49 @@ cd suire && python3 run_tests.py
 Result: 52/52 tests passed
 ```
 
+## 下一门禁
+
+### V0.3.1 — LIVE_SEARCH_SMOKE（脚本已就绪，live 日志待本地）
+
+```text
+SUIREN_REBUILD_V0.3.1_LIVE_SEARCH_SMOKE
+SCRIPT: suire/tools/live_search_smoke.py
+CI: 仅测报告格式/验收逻辑（Mock），不含 live 结果
+LIVE_SEARCH_REGRESSION: WAITING（需本地 API_KEY + 真实日志）
+```
+
+本地运行：
+
+```bash
+export SUIREN_SEARCH_API_KEY=your_brave_key
+cd suire && python3 tools/live_search_smoke.py --query "GPT price"
+# 报告: suire/reports/live_search_smoke_report.txt
+```
+
+最小验收字段：
+
+```text
+provider=brave
+api_key_present=True
+query="GPT price"
+status=ok | tool_failed
+item_count=N
+citations_count=N
+missing_url_count=0
+ads_rejected_count=N
+elapsed_ms=N
+smoke_pass=True|False
+```
+
+```text
+SUIREN_REBUILD_V0.1_CORE_SEALED ✅
+SUIREN_REBUILD_V0.2_TOOL_CALL_CONTRACT_SEALED ✅
+SUIREN_REBUILD_V0.3_SEARCH_ADAPTER_CODE_SEALED ✅
+WAITING: LIVE_SEARCH_REGRESSION log from local environment
+```
+
 ## 下一门禁（未开）
 
 ```text
-SUIREN_REBUILD_V0.4  # 待定：LLM adapter（与 search 不同时做）
-STATUS: WAITING_V0.4_GATE_DECISION
+SUIREN_REBUILD_V0.4  # 待定：LLM adapter（与 live search 验证完成后才议）
 ```
