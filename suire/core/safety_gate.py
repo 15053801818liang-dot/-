@@ -10,7 +10,7 @@ from .input_packet import InputPacket
 
 
 _CRAWLER_CUE_RE = re.compile(
-    r"(爬取|爬虫|抓取网页|批量采集|scrape|crawl|spider)",
+    r"(爬取|爬一下|爬网页|爬这个|爬虫|抓取网页|批量采集|scrape|crawl|spider)",
     re.IGNORECASE,
 )
 _AUTO_EXEC_RE = re.compile(

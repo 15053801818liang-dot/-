@@ -10,56 +10,89 @@ CORE: 对话路由 + 输出裁剪 + 任务状态机 + 证据门
 REBUILD_DIRECTION: 从“抓网页系统”改成“可控输入智能体”
 ```
 
-## 当前版本
+## 版本门禁
+
+### V0.1 — CORE_SEALED ✅
 
 ```text
 SUIREN_REBUILD_V0.1
 SCOPE: 输入标准化 + 意图路由 + 输出裁剪
-STATUS: CODE_PRESENT
-TEST_EVIDENCE: run suire/run_tests.py
+SEAL_SCOPE: suire/core only
+TEST_EVIDENCE: 24/24 PASSED (V0.1 baseline, retained)
+```
+
+V0.1 只证明：输入标准化、意图分类、输出约束、爬虫不进 core、自动执行不放行。  
+V0.1 不证明：搜索 API 可用、LLM 接通、记忆读写、多轮稳定、工具链可靠、证据可审计。
+
+### V0.2 — TOOL_CALL_CONTRACT ✅
+
+```text
+SUIREN_REBUILD_V0.2
+NAME: TOOL_CALL_CONTRACT_V0
+SCOPE: core → tools 调用契约 + 证据门（工具可假，契约必须真）
+TEST_EVIDENCE: 37/37 PASSED
+```
+
+新增：
+
+```text
+suire/core/tool_contract.py   # ToolRequest / ToolResult / process_contract_turn
+suire/core/evidence_gate.py   # EvidenceFrame / filter_evidence_items
+suire/tools/mock_backends.py  # 假 search 后端（测试专用，不接外网）
 ```
 
 ## 目录
 
 ```text
 suire/
-├── core/          # 第一层核心（无爬虫）
-├── tools/         # 受控工具层（搜索 API / 文件 / LLM / 记忆）
-├── memory/        # JSON 占位，无数据库
+├── core/
+│   ├── input_packet.py
+│   ├── intent_router.py
+│   ├── task_state.py
+│   ├── output_policy.py
+│   ├── safety_gate.py
+│   ├── tool_contract.py      # V0.2
+│   └── evidence_gate.py      # V0.2
+├── tools/
+├── memory/
 ├── tests/
 └── run_tests.py
 ```
 
-## V0.1 意图覆盖
-
-| 输入 | 意图 | 输出策略 |
-|------|------|----------|
-| `？` | follow_up | 短答，不补搜，不长篇 |
-| `继续` | continue | 有上下文继续；无则追问 |
-| `搜索: xxx` | search_intent | 走 tools/search_api，核心不爬虫 |
-| `看内容` | content_display | 展示已有内容 |
-| `帮我改代码` | code_task | 任务型输出 |
-| `审一下` | audit_task | 任务型输出 |
-| `记住/忘掉` | memory_task | 短确认 |
-| 普通句 | chat | 短问短答 |
-
-## 封口标准（V0.1）
+## V0.2 契约产物
 
 ```text
-✗ 爬虫
-✗ 数据库
-✗ 多 Agent
-✗ 复杂记忆
-✗ 自动执行
-✓ 听懂话、分对路、少废话
+ToolRequest
+  tool_name / query / reason / allow_network / max_results / source_policy
+ToolResult
+  status / items / error / citations / raw_allowed=False
+EvidenceFrame
+  needs_evidence / evidence_required_for_answer / confidence_ceiling / answer_allowed
 ```
 
-## 已知裂缝（后续）
+## V0.2 必测场景（已覆盖）
+
+| # | 场景 | 期望 |
+|---|------|------|
+| 1 | `搜索: GPT 最新价格` | ToolRequest(search_api), allow_network=True |
+| 2 | `爬一下这个网站` | safety_gate → crawler_not_in_core |
+| 3 | `你知道今天新闻吗` | needs_evidence=True, answer_allowed=False |
+| 4 | `看内容` | 无 ToolRequest |
+| 5 | `继续` | 有上下文不搜；无上下文 clarify |
+| 6 | search 空结果 | insufficient_evidence |
+| 7 | 广告源 | evidence_gate 拒绝 |
+| 8 | 工具报错 | tool_failed，不崩不幻觉 |
+
+## 禁止范围（V0.2 仍未引入）
 
 ```text
-1. search_api / llm_client 仅占位，未接真实 API
-2. memory 仅 JSON 文件读写框架
-3. 输出裁剪为规则型，未接 LLM 生成链
+✗ 真实爬虫
+✗ 真实外网 search API
+✗ 真实 LLM
+✗ 真实记忆读写
+✗ 自动执行
+✗ 多 Agent
+✗ 数据库
 ```
 
 ## 测试
@@ -71,5 +104,11 @@ cd suire && python3 run_tests.py
 期望：
 
 ```text
-Result: 24/24 tests passed
+Result: 37/37 tests passed
+```
+
+## 下一门禁（未开）
+
+```text
+SUIREN_REBUILD_V0.3  # 待定：单工具真实接入（search 或 llm 二选一，不同时做）
 ```
