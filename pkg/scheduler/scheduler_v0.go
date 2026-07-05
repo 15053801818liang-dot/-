@@ -2,52 +2,114 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
+	"time"
 )
 
-const initialBlockedReason = "waiting for dependencies"
-
-// DAGSchedulerV0 v0.1 调度器核心 — 状态机 + 状态转换 + 事件预留。
+// DAGSchedulerV0 v0.1 调度器核心。
 type DAGSchedulerV0 struct {
-	mu         sync.Mutex
-	instances  map[string]*DAGInstance
-	clock      Clock
-	nodeEvents NodeEventEmitter
-	logger     *log.Logger
+	mu             sync.Mutex
+	instances      map[string]*DAGInstance
+	clock          Clock
+	nodeEvents     NodeEventEmitter
+	logger         *log.Logger
+	executor       Executor
+	store          Store
+	maxConcurrency int
+	nodeTimeout    time.Duration
 }
 
 // DAGSchedulerOption 可选配置。
 type DAGSchedulerOption func(*DAGSchedulerV0)
 
-// WithClock 注入时钟（测试用）。
 func WithClock(c Clock) DAGSchedulerOption {
 	return func(s *DAGSchedulerV0) { s.clock = c }
 }
 
-// WithNodeEvents 注入事件发射器。
 func WithNodeEvents(e NodeEventEmitter) DAGSchedulerOption {
 	return func(s *DAGSchedulerV0) { s.nodeEvents = e }
 }
 
-// WithLogger 注入日志器。
 func WithLogger(l *log.Logger) DAGSchedulerOption {
 	return func(s *DAGSchedulerV0) { s.logger = l }
+}
+
+func WithExecutor(e Executor) DAGSchedulerOption {
+	return func(s *DAGSchedulerV0) { s.executor = e }
+}
+
+func WithMaxConcurrency(n int) DAGSchedulerOption {
+	return func(s *DAGSchedulerV0) {
+		if n > 0 {
+			s.maxConcurrency = n
+		}
+	}
+}
+
+func WithNodeTimeout(d time.Duration) DAGSchedulerOption {
+	return func(s *DAGSchedulerV0) {
+		if d > 0 {
+			s.nodeTimeout = d
+		}
+	}
+}
+
+func WithStore(st Store) DAGSchedulerOption {
+	return func(s *DAGSchedulerV0) { s.store = st }
+}
+
+func WithDataDir(dir string) DAGSchedulerOption {
+	return func(s *DAGSchedulerV0) {
+		st, err := NewJSONStore(dir)
+		if err != nil {
+			s.logger.Printf("store init failed: %v", err)
+			s.store = NoopStore{}
+			return
+		}
+		s.store = st
+	}
 }
 
 // NewDAGSchedulerV0 创建调度器。
 func NewDAGSchedulerV0(opts ...DAGSchedulerOption) *DAGSchedulerV0 {
 	s := &DAGSchedulerV0{
-		instances:  make(map[string]*DAGInstance),
-		clock:      RealClock{},
-		nodeEvents: NoopNodeEventEmitter{},
-		logger:     log.Default(),
+		instances:      make(map[string]*DAGInstance),
+		clock:          RealClock{},
+		nodeEvents:     NoopNodeEventEmitter{},
+		logger:         log.Default(),
+		executor:       NoopExecutor{},
+		store:          NoopStore{},
+		maxConcurrency: 5,
+		nodeTimeout:    30 * time.Second,
 	}
 	for _, opt := range opts {
 		opt(s)
 	}
+	s.restoreFromStore()
 	return s
+}
+
+func (s *DAGSchedulerV0) restoreFromStore() {
+	instances, err := s.store.LoadAll()
+	if err != nil {
+		s.logger.Printf("restore failed: %v", err)
+		return
+	}
+	for _, inst := range instances {
+		s.instances[inst.ID] = inst
+	}
+	if len(instances) > 0 {
+		s.logger.Printf("restored %d dag instance(s)", len(instances))
+	}
+}
+
+func (s *DAGSchedulerV0) persistLocked(inst *DAGInstance) {
+	if err := s.store.Save(inst); err != nil {
+		s.logger.Printf("persist dag %s: %v", inst.ID, err)
+	}
 }
 
 func (s *DAGSchedulerV0) transitionNodeStatus(
@@ -83,15 +145,15 @@ func (s *DAGSchedulerV0) transitionNodeStatus(
 	if output != "" {
 		state.Output = output
 	} else if target == StatusCompleted || target == StatusSkipped || target == StatusCancelled {
-		// 非 completed 终态清空 output；completed 保留传入值
 		if target != StatusCompleted {
 			state.Output = ""
 		}
 	}
-	instance.UpdatedAt = s.clock.Now()
+	instance.refreshStatus(s.clock.Now())
 
-	dagID := instance.Spec.ID
+	dagID := instance.ID
 	s.emitEvent(dagID, nodeID, prev, target, reason, output)
+	s.persistLocked(instance)
 	s.logger.Printf("node -> %s dag=%s node=%s reason=%s", target, dagID, nodeID, reason)
 	return nil
 }
@@ -115,175 +177,69 @@ func (s *DAGSchedulerV0) emitEvent(dagID, nodeID string, _, target NodeStatus, r
 	}
 }
 
-// SetNodeReady 将节点变更为 ready（来源: pending, failed, blocked）。
 func (s *DAGSchedulerV0) SetNodeReady(ctx context.Context, instance *DAGInstance, nodeID string) error {
 	return s.transitionNodeStatus(ctx, instance, nodeID, StatusReady, "", "")
 }
 
-// SetNodeRunning 将节点变更为 running（来源: ready）。
 func (s *DAGSchedulerV0) SetNodeRunning(ctx context.Context, instance *DAGInstance, nodeID string) error {
 	return s.transitionNodeStatus(ctx, instance, nodeID, StatusRunning, "", "")
 }
 
-// SetNodeCompleted 将节点变更为 completed（来源: running）。
 func (s *DAGSchedulerV0) SetNodeCompleted(ctx context.Context, instance *DAGInstance, nodeID, output string) error {
 	return s.transitionNodeStatus(ctx, instance, nodeID, StatusCompleted, "", output)
 }
 
-// SetNodeFailed 将节点变更为 failed（来源: running）。
 func (s *DAGSchedulerV0) SetNodeFailed(ctx context.Context, instance *DAGInstance, nodeID, errMsg string) error {
 	return s.transitionNodeStatus(ctx, instance, nodeID, StatusFailed, errMsg, "")
 }
 
-// SetNodeBlocked 将节点变更为 blocked（来源: pending, ready, failed）。
 func (s *DAGSchedulerV0) SetNodeBlocked(ctx context.Context, instance *DAGInstance, nodeID, reason string) error {
 	return s.transitionNodeStatus(ctx, instance, nodeID, StatusBlocked, reason, "")
 }
 
-// SetNodeSkipped 将节点变更为 skipped（来源: pending, ready, failed, blocked）。
 func (s *DAGSchedulerV0) SetNodeSkipped(ctx context.Context, instance *DAGInstance, nodeID, reason string) error {
 	return s.transitionNodeStatus(ctx, instance, nodeID, StatusSkipped, reason, "")
 }
 
-// SetNodeCancelled 将节点变更为 cancelled（来源: 任意非终态）。
 func (s *DAGSchedulerV0) SetNodeCancelled(ctx context.Context, instance *DAGInstance, nodeID, reason string) error {
 	return s.transitionNodeStatus(ctx, instance, nodeID, StatusCancelled, reason, "")
 }
 
-// SubmitDAG 校验 spec、判环、初始化节点状态并注册实例。
-//
-// 初始化规则：入度 0 → ready；入度 > 0 → blocked。
-func (s *DAGSchedulerV0) SubmitDAG(ctx context.Context, spec DAGSpec) (*DAGInstance, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
-	if err := validateDAGSpec(&spec); err != nil {
-		return nil, err
-	}
-	if _, err := s.topoSort(&spec); err != nil {
-		return nil, err
-	}
-	inDegree, _, err := buildGraph(&spec)
-	if err != nil {
-		return nil, err
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, exists := s.instances[spec.ID]; exists {
-		return nil, fmt.Errorf("scheduler: dag %s already exists", spec.ID)
-	}
-
-	specCopy := spec
-	now := s.clock.Now()
-	instance := NewDAGInstance(&specCopy, now)
-
-	dagID := spec.ID
-	for nodeID := range spec.Nodes {
-		state := instance.NodeStates[nodeID]
-		if inDegree[nodeID] == 0 {
-			if err := validateTransition(state.Status, StatusReady); err != nil {
-				return nil, err
-			}
-			state.Status = StatusReady
-			s.emitEvent(dagID, nodeID, StatusPending, StatusReady, "", "")
-		} else {
-			if err := validateTransition(state.Status, StatusBlocked); err != nil {
-				return nil, err
-			}
-			state.Status = StatusBlocked
-			state.Error = initialBlockedReason
-			s.emitEvent(dagID, nodeID, StatusPending, StatusBlocked, initialBlockedReason, "")
+// RunAll 循环 Step 直到 DAG 完成或卡住。
+func (s *DAGSchedulerV0) RunAll(ctx context.Context, dagID string) error {
+	for {
+		if s.IsDAGComplete(dagID) {
+			return nil
+		}
+		if s.IsDAGStuck(dagID) {
+			return fmt.Errorf("scheduler: dag %s stuck", dagID)
+		}
+		snapBefore, _ := s.stateFingerprint(dagID)
+		if err := s.Step(ctx, dagID); err != nil {
+			return err
+		}
+		snapAfter, _ := s.stateFingerprint(dagID)
+		if snapBefore == snapAfter && !s.IsDAGComplete(dagID) {
+			return fmt.Errorf("scheduler: dag %s made no progress", dagID)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
 	}
-	instance.UpdatedAt = s.clock.Now()
-	s.instances[dagID] = instance
-	s.logger.Printf("dag submitted id=%s nodes=%d", dagID, len(spec.Nodes))
-	return instance, nil
 }
 
-// GetDAG 按 ID 获取已注册的 DAG 实例。
-func (s *DAGSchedulerV0) GetDAG(dagID string) (*DAGInstance, bool) {
+func (s *DAGSchedulerV0) stateFingerprint(dagID string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	inst, ok := s.instances[dagID]
-	return inst, ok
-}
-
-func validateDAGSpec(spec *DAGSpec) error {
-	if spec.ID == "" {
-		return fmt.Errorf("scheduler: dag id is required")
+	if !ok {
+		return "", fmt.Errorf("scheduler: dag %s not found", dagID)
 	}
-	if len(spec.Nodes) == 0 {
-		return fmt.Errorf("scheduler: dag must have at least one node")
-	}
-	for id, node := range spec.Nodes {
-		if id == "" {
-			return fmt.Errorf("scheduler: node id is required")
-		}
-		if node == nil {
-			return fmt.Errorf("scheduler: node %s is nil", id)
-		}
-	}
-	return nil
-}
-
-func buildGraph(spec *DAGSpec) (inDegree map[string]int, children map[string][]string, err error) {
-	nodeCount := len(spec.Nodes)
-	inDegree = make(map[string]int, nodeCount)
-	children = make(map[string][]string, nodeCount)
-
-	for id := range spec.Nodes {
-		inDegree[id] = 0
-	}
-	for _, edge := range spec.Edges {
-		from, to := edge.From, edge.To
-		if _, ok := spec.Nodes[from]; !ok {
-			return nil, nil, fmt.Errorf("scheduler: edge references unknown node %s", from)
-		}
-		if _, ok := spec.Nodes[to]; !ok {
-			return nil, nil, fmt.Errorf("scheduler: edge references unknown node %s", to)
-		}
-		children[from] = append(children[from], to)
-		inDegree[to]++
-	}
-	return inDegree, children, nil
-}
-
-// topoSort 对 DAG 进行拓扑排序（Kahn 算法 + 判环）。
-func (s *DAGSchedulerV0) topoSort(spec *DAGSpec) ([]string, error) {
-	nodeCount := len(spec.Nodes)
-	inDegree, children, err := buildGraph(spec)
+	b, err := json.Marshal(inst.NodeStates)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-
-	queue := make([]string, 0)
-	for id, degree := range inDegree {
-		if degree == 0 {
-			queue = append(queue, id)
-		}
-	}
-
-	order := make([]string, 0, nodeCount)
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		order = append(order, current)
-		for _, child := range children[current] {
-			inDegree[child]--
-			if inDegree[child] == 0 {
-				queue = append(queue, child)
-			}
-		}
-	}
-
-	if len(order) != nodeCount {
-		return nil, fmt.Errorf("scheduler: dag contains cycle: sorted %d/%d nodes", len(order), nodeCount)
-	}
-	return order, nil
+	return string(b), nil
 }
