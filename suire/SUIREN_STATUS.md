@@ -7,92 +7,82 @@ SUIREN_REBUILD_DECISION_V0
 CRAWLER: REMOVE_FROM_CORE
 SEARCH/FETCH: TOOL_LAYER_ONLY
 CORE: 对话路由 + 输出裁剪 + 任务状态机 + 证据门
-REBUILD_DIRECTION: 从“抓网页系统”改成“可控输入智能体”
+REBUILD_DIRECTION: 可控输入智能体
 ```
 
 ## 版本门禁
 
 ### V0.1 — CORE_SEALED ✅
 
-```text
-SUIREN_REBUILD_V0.1
-SCOPE: 输入标准化 + 意图路由 + 输出裁剪
-SEAL_SCOPE: suire/core only
-TEST_EVIDENCE: 24/24 PASSED (V0.1 baseline, retained)
-```
+输入标准化 + 意图路由 + 输出裁剪（24 项基线保留）
 
-V0.1 只证明：输入标准化、意图分类、输出约束、爬虫不进 core、自动执行不放行。  
-V0.1 不证明：搜索 API 可用、LLM 接通、记忆读写、多轮稳定、工具链可靠、证据可审计。
+### V0.2 — TOOL_CALL_CONTRACT_SEALED ✅
 
-### V0.2 — TOOL_CALL_CONTRACT ✅
+`ToolRequest` / `ToolResult` / `EvidenceFrame` + mock 契约测试
+
+### V0.3 — SEARCH_ADAPTER ✅
 
 ```text
-SUIREN_REBUILD_V0.2
-NAME: TOOL_CALL_CONTRACT_V0
-SCOPE: core → tools 调用契约 + 证据门（工具可假，契约必须真）
-TEST_EVIDENCE: 37/37 PASSED
+SUIREN_REBUILD_V0.3_SEARCH_ADAPTER
+SCOPE: 真实 search adapter（stdlib urllib，可注入 HTTP）
+TEST_EVIDENCE: 52/52 PASSED
+REAL_NETWORK: tools/search_api.py only（测试用 FakeFetcher）
+REAL_LLM: NOT_INTRODUCED
+REAL_MEMORY: NOT_INTRODUCED
+CRAWLER_CORE_REMOVED: STILL_PASS
 ```
 
-新增：
+新增/修改：
 
 ```text
-suire/core/tool_contract.py   # ToolRequest / ToolResult / process_contract_turn
-suire/core/evidence_gate.py   # EvidenceFrame / filter_evidence_items
-suire/tools/mock_backends.py  # 假 search 后端（测试专用，不接外网）
+suire/tools/search_config.py          # SUIREN_SEARCH_API_KEY / TIMEOUT / PROVIDER
+suire/tools/search_api.py             # SearchAPIAdapter.invoke(ToolRequest)
+suire/tests/test_search_adapter.py
+suire/tests/test_search_contract_integration.py
 ```
 
-## 目录
+配置：
 
-```text
-suire/
-├── core/
-│   ├── input_packet.py
-│   ├── intent_router.py
-│   ├── task_state.py
-│   ├── output_policy.py
-│   ├── safety_gate.py
-│   ├── tool_contract.py      # V0.2
-│   └── evidence_gate.py      # V0.2
-├── tools/
-├── memory/
-├── tests/
-└── run_tests.py
+```bash
+export SUIREN_SEARCH_API_KEY=your_brave_key   # 未设置 → not_configured
+export SUIREN_SEARCH_PROVIDER=brave           # 默认
+export SUIREN_SEARCH_TIMEOUT=10
 ```
 
-## V0.2 契约产物
+## V0.3 必测门禁（已覆盖）
 
-```text
-ToolRequest
-  tool_name / query / reason / allow_network / max_results / source_policy
-ToolResult
-  status / items / error / citations / raw_allowed=False
-EvidenceFrame
-  needs_evidence / evidence_required_for_answer / confidence_ceiling / answer_allowed
-```
-
-## V0.2 必测场景（已覆盖）
-
-| # | 场景 | 期望 |
+| # | 场景 | 结果 |
 |---|------|------|
-| 1 | `搜索: GPT 最新价格` | ToolRequest(search_api), allow_network=True |
-| 2 | `爬一下这个网站` | safety_gate → crawler_not_in_core |
-| 3 | `你知道今天新闻吗` | needs_evidence=True, answer_allowed=False |
-| 4 | `看内容` | 无 ToolRequest |
-| 5 | `继续` | 有上下文不搜；无上下文 clarify |
-| 6 | search 空结果 | insufficient_evidence |
-| 7 | 广告源 | evidence_gate 拒绝 |
-| 8 | 工具报错 | tool_failed，不崩不幻觉 |
+| 1 | 无 API_KEY | `tool_failed:not_configured` |
+| 2 | API 超时 | `tool_failed:timeout` |
+| 3 | 空结果 | `insufficient_evidence` |
+| 4 | 无 url/citation | `rejected_missing_citation` |
+| 5 | 广告/推广源 | evidence_gate 拒绝 |
+| 6 | 官方/文档源 | `accepted_source` |
+| 7 | `搜索: xxx` 端到端 | ToolRequest → ToolResult.ok + citations |
+| 8 | core 不 import requests/httpx | AST 扫描 PASS |
 
-## 禁止范围（V0.2 仍未引入）
+## 封口边界
 
 ```text
-✗ 真实爬虫
-✗ 真实外网 search API
-✗ 真实 LLM
-✗ 真实记忆读写
-✗ 自动执行
-✗ 多 Agent
-✗ 数据库
+V0.3 证明：
+- search adapter 实现 ToolBackend 契约
+- 搜不到不乱答（empty/失败/拒绝 → 不编答案）
+- 搜到了过 evidence_gate（url + 来源策略）
+- 外网仅在 tools/search_api.py（stdlib urllib）
+
+V0.3 不证明：
+- 生产环境 API 配额/稳定性
+- LLM 接通
+- memory_store 真实读写
+- 多轮任务链
+- 证据质量已充分
+```
+
+## 禁止范围（仍未引入）
+
+```text
+✗ 爬虫  ✗ LLM  ✗ memory_store  ✗ 数据库  ✗ 多 Agent  ✗ 自动执行
 ```
 
 ## 测试
@@ -101,14 +91,13 @@ EvidenceFrame
 cd suire && python3 run_tests.py
 ```
 
-期望：
-
 ```text
-Result: 37/37 tests passed
+Result: 52/52 tests passed
 ```
 
 ## 下一门禁（未开）
 
 ```text
-SUIREN_REBUILD_V0.3  # 待定：单工具真实接入（search 或 llm 二选一，不同时做）
+SUIREN_REBUILD_V0.4  # 待定：LLM adapter（与 search 不同时做）
+STATUS: WAITING_V0.4_GATE_DECISION
 ```

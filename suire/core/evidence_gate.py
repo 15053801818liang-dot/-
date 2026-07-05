@@ -127,6 +127,9 @@ def filter_evidence_items(
 
     for item in items:
         text_blob = f"{item.title} {item.snippet} {item.source} {item.url or ''}"
+        if not item.url or not str(item.url).strip():
+            rejections.append(f"rejected_missing_citation:{item.source or 'unknown'}")
+            continue
         if source_policy == "no_ads" and _AD_SOURCE_RE.search(text_blob):
             rejections.append(f"rejected_ad_source:{item.source}")
             continue

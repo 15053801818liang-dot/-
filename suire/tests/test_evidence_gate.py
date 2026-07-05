@@ -37,6 +37,12 @@ class TestEvidenceGate(unittest.TestCase):
         self.assertFalse(ev.needs_evidence)
         self.assertTrue(ev.answer_allowed)
 
+    def test_filter_rejects_missing_url(self):
+        items = [EvidenceItem("No cite", "text", "unknown", None, 0.9)]
+        accepted, rejections = filter_evidence_items(items, source_policy="no_ads")
+        self.assertEqual(len(accepted), 0)
+        self.assertTrue(any("rejected_missing_citation" in r for r in rejections))
+
     def test_filter_rejects_ad_sources(self):
         items = [
             EvidenceItem("推广", "赞助", "ad-network", "https://ads.example/x", 0.9),
