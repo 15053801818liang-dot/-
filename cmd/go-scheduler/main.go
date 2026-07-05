@@ -61,7 +61,10 @@ func main() {
 			{
 				ID:     "pangu_inference",
 				Script: "tasks/pangu_inference.py",
-				Params: map[string]interface{}{},
+				Params: map[string]interface{}{
+					"symbolic_kb": "configs/pangu_symbolic_kb.json",
+					"mode":        "symbolic_deduction",
+				},
 			},
 			{
 				ID:     "write_replay_report",

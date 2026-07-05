@@ -28,7 +28,8 @@ class PanguInference(TaskBase):
         load_summary = load_art.get("summary") or load_art.get("payload", {}).get("summary", {})
         clean_audit = load_summary.get("clean_audit")
 
-        reasoner = PanguReasoner()
+        kb_path = params.get("symbolic_kb")
+        reasoner = PanguReasoner(kb_path=kb_path)
         import time
 
         t_load = time.perf_counter()
@@ -73,6 +74,8 @@ class PanguInference(TaskBase):
             "market_state_code": inference["state_code"],
             "confidence": inference["confidence"],
             "semantic_audit": inference.get("semantic_audit", {}),
+            "deduction_path": inference.get("deduction_path", []),
+            "matched_rule": inference.get("matched_rule"),
             "summary": {
                 "state_code": inference["state_code"],
                 "confidence": inference["confidence"],

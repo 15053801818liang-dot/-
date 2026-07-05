@@ -1,0 +1,86 @@
+{
+  "version": "1.0.0",
+  "description": "缠论结构语义 → 盘古符号演绎知识库",
+  "fact_types": [
+    "stroke_at",
+    "pivot_active",
+    "divergence",
+    "trade_signal",
+    "price_position",
+    "stroke_exhaustion"
+  ],
+  "rules": [
+    {
+      "id": "high_risk_exit",
+      "state_code": "HIGH_RISK_EXIT",
+      "requires_all": ["signal_sell3", "divergence_top"],
+      "confidence": 0.88,
+      "interpretation": "三卖确认离开中枢，叠加顶背驰，末端笔序列进入高风险离开段。",
+      "deduction_template": "因末次信号为 sell3（{signal_reason}）且存在顶背驰（bar#{div_bar}），符合规则 high_risk_exit。"
+    },
+    {
+      "id": "bull_pivot_breakout",
+      "state_code": "TREND_BULL_LEAVE_PIVOT",
+      "requires_all": ["signal_buy3"],
+      "confidence": 0.82,
+      "interpretation": "中枢向上突破确认，回调未回中枢，趋势延续概率升高。",
+      "deduction_template": "因 buy3 信号（{signal_reason}）表明上涨离开中枢后回抽确认，符合规则 bull_pivot_breakout。"
+    },
+    {
+      "id": "bear_pivot_breakout",
+      "state_code": "TREND_BEAR_LEAVE_PIVOT",
+      "requires_all": ["signal_sell3"],
+      "confidence": 0.8,
+      "interpretation": "中枢向下跌破确认，反抽未回中枢，下行结构延续。",
+      "deduction_template": "因 sell3 信号（{signal_reason}）表明下跌离开中枢后反抽确认，符合规则 bear_pivot_breakout。"
+    },
+    {
+      "id": "buy_divergence_confirm",
+      "state_code": "BUY_DIVERGENCE_CONFIRM",
+      "requires_all": ["signal_buy1", "divergence_bottom"],
+      "confidence": 0.85,
+      "interpretation": "底背驰与一类买点共振，符合缠论做多确认条件。",
+      "deduction_template": "因 buy1（{signal_reason}）与底背驰（bar#{div_bar}）同时成立，符合规则 buy_divergence_confirm。"
+    },
+    {
+      "id": "top_divergence_zone",
+      "state_code": "TOP_DIVERGENCE_ZONE",
+      "requires_any": ["signal_sell1", "signal_sell2", "divergence_top"],
+      "confidence": 0.78,
+      "interpretation": "顶背驰或一类卖点区域，宜减仓或等待笔确认。",
+      "deduction_template": "因顶背驰/卖信号活跃（{signal_kind}），符合规则 top_divergence_zone。"
+    },
+    {
+      "id": "bottom_divergence_zone",
+      "state_code": "BOTTOM_DIVERGENCE_ZONE",
+      "requires_any": ["signal_buy1", "signal_buy2", "divergence_bottom"],
+      "confidence": 0.78,
+      "interpretation": "底背驰或一类买点区域，可关注做多确认。",
+      "deduction_template": "因底背驰/买信号活跃（{signal_kind}），符合规则 bottom_divergence_zone。"
+    },
+    {
+      "id": "osc_neutral",
+      "state_code": "OSC_NEUTRAL",
+      "requires_all": ["position_inside"],
+      "confidence": 0.7,
+      "interpretation": "价格运行于中枢内部，震荡结构主导，建议观望或缩小仓位。",
+      "deduction_template": "因末收盘位于中枢 [ZD,ZG] 内部，符合规则 osc_neutral。"
+    },
+    {
+      "id": "trend_bull",
+      "state_code": "TREND_BULL",
+      "requires_all": ["position_above"],
+      "confidence": 0.72,
+      "interpretation": "价格稳定于中枢上方，多头结构占优。",
+      "deduction_template": "因末收盘高于 ZG={zg}，符合规则 trend_bull。"
+    },
+    {
+      "id": "trend_bear",
+      "state_code": "TREND_BEAR",
+      "requires_all": ["position_below"],
+      "confidence": 0.72,
+      "interpretation": "价格稳定于中枢下方，空头结构占优。",
+      "deduction_template": "因末收盘低于 ZD={zd}，符合规则 trend_bear。"
+    }
+  ]
+}

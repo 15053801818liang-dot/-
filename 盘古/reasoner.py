@@ -1,10 +1,12 @@
-"""盘古回测推理桥接 — 消化 chanlun/ 结构语义（笔/中枢/背驰/买卖点）。"""
+"""盘古回测推理桥接 — SuperBrain 兼容符号演绎 + chanlun 结构语义。"""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from symbolic import SymbolicReasoningPipeline
 
 
 def _load_json(path: Optional[str]) -> Dict[str, Any]:
@@ -17,17 +19,12 @@ def _load_json(path: Optional[str]) -> Dict[str, Any]:
         return json.load(f)
 
 
-def _pivot_position(price: float, pivot: Dict[str, Any]) -> str:
-    zg, zd = float(pivot["zg"]), float(pivot["zd"])
-    if price > zg:
-        return "above"
-    if price < zd:
-        return "below"
-    return "inside"
-
-
 class PanguReasoner:
-    """读取缠论 artifact 结构骨架，输出符号化市场解读。"""
+    """符号演绎智能体：chanlun 结构 → Fact 注入 → 规则演绎。"""
+
+    def __init__(self, kb_path: Optional[str] = None) -> None:
+        path = Path(kb_path) if kb_path else None
+        self.pipeline = SymbolicReasoningPipeline(path)
 
     def reason_from_chanlun(
         self,
@@ -39,88 +36,52 @@ class PanguReasoner:
         metrics = metrics or {}
         audit = audit or {}
 
-        strokes: List[Dict[str, Any]] = structure.get("recent_strokes") or []
-        pivots: List[Dict[str, Any]] = structure.get("active_pivots") or []
-        divergence = structure.get("last_divergence")
-        trade_points: List[Dict[str, Any]] = structure.get("trade_points") or []
-        last_stroke = structure.get("last_stroke") or (strokes[-1] if strokes else None)
-        last_close = structure.get("last_close")
         total_strokes = int(structure.get("total_strokes") or 0)
-        current_idx = int(structure.get("current_stroke_index", -1))
-
-        active_pivot = pivots[-1] if pivots else None
-        last_signal = trade_points[-1] if trade_points else None
-
-        state_code = "STRUCT_UNCERTAIN"
-        confidence = 0.5
-
         if not total_strokes:
             return self._pack(
-                "结构为空，无法完成缠论语义推理。",
+                "结构为空，无法完成符号演绎。",
                 "NO_STRUCTURE",
                 0.2,
                 structure,
                 metrics,
                 semantic_audit={},
+                deduction_path=[],
+                matched_rule=None,
             )
 
-        pos_label = "未知"
-        if active_pivot and last_close is not None:
-            pos = _pivot_position(float(last_close), active_pivot)
-            pos_label = {"above": "中枢上方", "below": "中枢下方", "inside": "中枢内部"}[pos]
-
-        # 结构驱动状态码
-        if last_signal:
-            kind = last_signal.get("kind", "")
-            reason = last_signal.get("reason", "")
-            if kind == "sell3" and divergence and divergence.get("kind") == "top":
-                state_code = "HIGH_RISK_EXIT"
-                confidence = 0.88
-            elif kind == "sell3":
-                state_code = "TREND_BEAR_LEAVE_PIVOT"
-                confidence = 0.82
-            elif kind == "buy1" and divergence and divergence.get("kind") == "bottom":
-                state_code = "BUY_DIVERGENCE_CONFIRM"
-                confidence = 0.85
-            elif kind == "buy3":
-                state_code = "TREND_BULL_LEAVE_PIVOT"
-                confidence = 0.8
-            elif kind in ("sell1", "sell2"):
-                state_code = "TOP_DIVERGENCE_ZONE"
-                confidence = 0.78
-            elif kind in ("buy1", "buy2"):
-                state_code = "BOTTOM_DIVERGENCE_ZONE"
-                confidence = 0.78
-            elif "背驰" in reason:
-                state_code = "DIVERGENCE_ACTIVE"
-                confidence = 0.75
-
-        if active_pivot and last_close is not None and state_code == "STRUCT_UNCERTAIN":
-            pos = _pivot_position(float(last_close), active_pivot)
-            if pos == "inside":
-                state_code = "OSC_NEUTRAL"
-                confidence = 0.7
-            elif pos == "above":
-                state_code = "TREND_BULL"
-                confidence = 0.72
-            else:
-                state_code = "TREND_BEAR"
-                confidence = 0.72
+        deduction = self.pipeline.deduce(structure)
+        logic_kb = deduction.get("logic_kb") or {}
+        state_code = deduction["state_code"]
+        confidence = float(deduction["confidence"])
+        interpretation = deduction["interpretation"]
+        deduction_path: List[str] = deduction.get("deduction_path") or []
 
         if clean_audit and clean_audit.get("gap_warnings", 0) > 10:
             confidence = round(confidence * 0.85, 2)
+            deduction_path.append("PENALTY gap_warnings>10 confidence*0.85")
+
+        current_idx = int(structure.get("current_stroke_index", -1))
+        pos_label = "未知"
+        tags = logic_kb.get("tags") or []
+        if "position_above" in tags:
+            pos_label = "中枢上方"
+        elif "position_below" in tags:
+            pos_label = "中枢下方"
+        elif "position_inside" in tags:
+            pos_label = "中枢内部"
 
         semantic_audit = self._build_semantic_audit(
             total_strokes=total_strokes,
             current_idx=current_idx,
-            last_stroke=last_stroke,
-            active_pivot=active_pivot,
-            divergence=divergence,
-            last_signal=last_signal,
+            last_stroke=logic_kb.get("last_stroke"),
+            active_pivot=logic_kb.get("active_pivot"),
+            divergence=logic_kb.get("divergence"),
+            last_signal=logic_kb.get("last_signal"),
             pos_label=pos_label,
-            last_close=last_close,
+            last_close=structure.get("last_close"),
         )
-        interpretation = self._interpret_structure(semantic_audit, audit)
+        semantic_audit["symbolic_facts"] = logic_kb.get("facts", [])
+        semantic_audit["matched_rule"] = deduction.get("matched_rule")
 
         return self._pack(
             interpretation,
@@ -129,6 +90,8 @@ class PanguReasoner:
             structure,
             metrics,
             semantic_audit=semantic_audit,
+            deduction_path=deduction_path,
+            matched_rule=deduction.get("matched_rule"),
         )
 
     def analyze(
@@ -191,47 +154,6 @@ class PanguReasoner:
             audit["last_close"] = last_close
         return audit
 
-    def _interpret_structure(
-        self,
-        semantic: Dict[str, Any],
-        audit: Dict[str, Any],
-    ) -> str:
-        stroke_no = semantic.get("stroke_index", -1) + 1
-        total = semantic.get("total_strokes", 0)
-        pos = semantic.get("pivot_position", "未知")
-        pivot = semantic.get("active_pivot")
-        div = semantic.get("divergence")
-        sig = semantic.get("last_signal")
-        mode = audit.get("analyze_mode", "full")
-
-        parts: List[str] = [
-            f"当前处于第 {stroke_no}/{total} 笔（{mode} 分析），"
-        ]
-
-        if pivot:
-            parts.append(
-                f"活跃中枢 ZG={pivot['zg']:.2f}, ZD={pivot['zd']:.2f}，"
-                f"末收盘相对中枢位于{pos}。"
-            )
-        else:
-            parts.append("尚未形成有效中枢重叠区间。")
-
-        if div:
-            parts.append(
-                f"最近背驰：{div.get('reason')}（bar#{div.get('bar_index')}，"
-                f"价 {div.get('price')}）。"
-            )
-
-        if sig:
-            parts.append(
-                f"末次信号 `{sig.get('kind')}`：{sig.get('reason')}，"
-                f"建议确认点为 bar#{sig.get('bar_index')}。"
-            )
-        elif div and div.get("kind") == "bottom":
-            parts.append("底背驰已出现但尚无对应 buy 信号落点，宜等待笔确认。")
-
-        return "".join(parts)
-
     def _metrics_fallback(
         self,
         metrics: Dict[str, Any],
@@ -249,7 +171,12 @@ class PanguReasoner:
         )
         if clean_audit and clean_audit.get("gap_warnings", 0) > 10:
             conf = round(conf * 0.85, 2)
-        return self._pack(text, state, conf, {}, metrics, semantic_audit={})
+        return self._pack(
+            text, state, conf, {}, metrics,
+            semantic_audit={},
+            deduction_path=["FALLBACK metrics_only"],
+            matched_rule=None,
+        )
 
     def _pack(
         self,
@@ -259,11 +186,15 @@ class PanguReasoner:
         structure: Dict[str, Any],
         metrics: Dict[str, Any],
         semantic_audit: Dict[str, Any],
+        deduction_path: List[str],
+        matched_rule: Optional[str],
     ) -> Dict[str, Any]:
         return {
             "interpretation": interpretation,
             "state_code": state_code,
             "confidence": confidence,
+            "deduction_path": deduction_path,
+            "matched_rule": matched_rule,
             "semantic_audit": semantic_audit,
             "structure_snapshot": {
                 "total_strokes": structure.get("total_strokes"),

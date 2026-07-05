@@ -51,6 +51,13 @@ class WriteReplayReport(TaskBase):
             or pangu_payload.get("semantic_audit")
             or {}
         )
+        deduction_path = pangu_art.get("deduction_path") or pangu_payload.get("deduction_path") or []
+        if not deduction_path:
+            pangu_path = pangu_art.get("artifact_path") or pangu_payload.get("artifact_path")
+            if pangu_path and Path(pangu_path).exists():
+                with open(pangu_path, encoding="utf-8") as pf:
+                    deduction_path = json.load(pf).get("deduction_path") or []
+        matched_rule = pangu_art.get("matched_rule") or pangu_payload.get("matched_rule")
         structure_detail = result.get("structure_detail") or {}
 
         reports_dir = Path(workspace_dir) / "reports"
@@ -161,6 +168,14 @@ class WriteReplayReport(TaskBase):
             lines.append(
                 f"- **确认信号**: `{sig.get('kind')}` — {sig.get('reason')}"
             )
+
+        if matched_rule:
+            lines.append(f"- **匹配规则**: `{matched_rule}`")
+
+        if deduction_path:
+            lines.extend(["", "### 符号演绎路径", ""])
+            for i, step in enumerate(deduction_path, 1):
+                lines.append(f"{i}. {step}")
 
         lines.extend([
             "",

@@ -5,6 +5,7 @@ memory/
 knowledge/
 *.json
 !configs/*.json
+!盘古/symbolic_kb.json
 !rules/*.super
 !TRUSTED.json
 benchmark_output/
