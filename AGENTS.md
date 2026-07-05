@@ -22,7 +22,8 @@ This repo contains **three independent products**:
 - Python 3.12; there is no `python` alias (use `python3`), and `python3-venv`
   is not installable here, so deps are installed to `~/.local` via
   `pip install --break-system-packages` (handled by the update script).
-- `~/.local/bin` is not on `PATH` by default; run tools as `python3 -m pytest`.
+- `~/.local/bin` is not on `PATH` by default; run tools as `python3 -m pytest`
+ (`pytest` itself is installed by the update script alongside the runtime deps).
 - **protobuf must be `<3.21`** — the update script pins it because `etcd3 0.12.0`
   ships pre-3.19 generated code that fails to import against protobuf 7.x.
 - `scheduler/atomic.py` needs `libatomic.so.1` (already present in the base image).
