@@ -12,7 +12,12 @@ from typing import Any, Callable, Dict, List, Optional, Protocol
 
 from core.tool_contract import ToolRequest, ToolResult
 
-from .search_config import SearchConfig
+from .search_config import SearchConfig, DEFAULT_BRAVE_URL
+from .search_diagnostic import (
+    AdapterDiagnostic,
+    build_adapter_diagnostic,
+    format_tool_error,
+)
 
 
 class HttpFetcher(Protocol):
@@ -118,8 +123,10 @@ class SearchAPIAdapter:
         self.config = config or SearchConfig.from_env()
         self.fetcher = fetcher or UrllibFetcher()
         self.response_parser = response_parser or normalize_brave_results
+        self.last_diagnostic: Optional[AdapterDiagnostic] = None
 
     def invoke(self, request: ToolRequest) -> ToolResult:
+        self.last_diagnostic = None
         if request.tool_name != "search_api":
             return ToolResult(status="tool_failed", error=f"wrong_tool:{request.tool_name}")
 
@@ -141,11 +148,34 @@ class SearchAPIAdapter:
         resp = self.fetcher.fetch(url, headers=headers, timeout=self.config.timeout_seconds)
 
         if resp.error == "timeout" or "timeout" in resp.error.lower():
+            self.last_diagnostic = build_adapter_diagnostic(
+                provider=self.config.provider,
+                endpoint=url.split("?")[0],
+                method="GET",
+                api_key=self.config.api_key,
+                query=query,
+                count=limit,
+                http_status=0,
+                response_body="timeout",
+            )
             return ToolResult(status="tool_failed", error="timeout")
 
         if resp.status_code == 0 or resp.status_code >= 400:
-            err = resp.error or f"http_{resp.status_code}"
-            return ToolResult(status="tool_failed", error=err)
+            endpoint = self.config.base_url.split("?")[0]
+            self.last_diagnostic = build_adapter_diagnostic(
+                provider=self.config.provider,
+                endpoint=endpoint,
+                method="GET",
+                api_key=self.config.api_key,
+                query=query,
+                count=limit,
+                http_status=resp.status_code,
+                response_body=resp.body or resp.error,
+            )
+            return ToolResult(
+                status="tool_failed",
+                error=format_tool_error(self.last_diagnostic),
+            )
 
         try:
             payload = json.loads(resp.body) if resp.body else {}

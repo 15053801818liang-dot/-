@@ -8,7 +8,7 @@ import json
 import os
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -29,6 +29,7 @@ from core.tool_contract import (
 )
 from tools.search_api import SearchAPIAdapter
 from tools.search_config import SearchConfig
+from tools.search_diagnostic import AdapterDiagnostic
 
 
 DEFAULT_QUERY = "GPT price"
@@ -49,7 +50,8 @@ class SmokeReport:
     ads_rejected_count: int
     elapsed_ms: int
     smoke_pass: bool
-    smoke_notes: List[str]
+    smoke_notes: List[str] = field(default_factory=list)
+    diagnostic: Optional[AdapterDiagnostic] = None
 
     def to_log_lines(self) -> List[str]:
         lines = [
@@ -66,6 +68,8 @@ class SmokeReport:
             f"elapsed_ms={self.elapsed_ms}",
             f"smoke_pass={self.smoke_pass}",
         ]
+        if self.diagnostic is not None:
+            lines.extend(self.diagnostic.to_log_lines())
         for note in self.smoke_notes:
             lines.append(f"note={note}")
         return lines
@@ -144,9 +148,12 @@ def run_live_smoke(
     gated_error = "no_request"
     citations_count = 0
     item_count = 0
+    diagnostic: Optional[AdapterDiagnostic] = None
 
     if tool_request and safety.allowed:
         raw = backend.invoke(tool_request)
+        if hasattr(backend, "last_diagnostic"):
+            diagnostic = getattr(backend, "last_diagnostic")
         raw_items = list(raw.items or [])
         gated = execute_tool_request(tool_request, backend, evidence=evidence)
         gated_status = gated.status
@@ -184,6 +191,7 @@ def run_live_smoke(
         elapsed_ms=elapsed_ms,
         smoke_pass=False,
         smoke_notes=[],
+        diagnostic=diagnostic,
     )
     passed, notes = _evaluate_pass(report)
     report.smoke_pass = passed
