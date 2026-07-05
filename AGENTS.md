@@ -2,7 +2,7 @@
 
 ## Cursor Cloud specific instructions
 
-This repo contains **two independent products**:
+This repo contains **three independent products**:
 
 1. `scheduler/` — **distributed_scheduler**: a lock-free shared-memory MPMC task
    queue + etcd-based leader election. Deps: `etcd3`, `prometheus-client`,
@@ -10,6 +10,9 @@ This repo contains **two independent products**:
 2. `盘古/` — **Pangu**: a zero-dependency, pure-stdlib symbolic reasoning agent.
    No third-party packages required. This is what the top-level `README.md`
    documents.
+3. `chanlun/` — **缠论 (Chanlun)**: a zero-dependency, pure-stdlib technical
+   analysis kernel (K线包含处理 → 分型 → 笔 → 中枢 → MACD背驰 → 买卖点).
+   See `chanlun/README.md`.
 
 ### Environment notes
 - Python 3.12; there is no `python` alias (use `python3`), and `python3-venv`
@@ -23,6 +26,9 @@ This repo contains **two independent products**:
 ### Running / testing
 - distributed_scheduler tests: `python3 -m pytest tests/test_distributed_scheduler.py`
   (uses a fake lease manager — no etcd needed).
+- chanlun tests: `python3 chanlun/test_chanlun.py` (or
+  `python3 -m pytest chanlun/test_chanlun.py`); demo: `python3 -m chanlun.demo`.
+  Zero deps — runs on stdlib alone.
 - Pangu tests are run **directly**, not via pytest (filenames contain dots).
   See `盘古/.github/workflows/test.yml`:
   `cd 盘古 && python3 test_pangu_v0.10.0.py && python3 test_comprehensive.py && python3 test_pangu_v011.py`.
