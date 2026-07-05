@@ -39,7 +39,13 @@ def process_inclusion(bars: List[Bar]) -> List[MergedBar]:
 
     first = bars[0]
     merged: List[MergedBar] = [
-        MergedBar(high=first.high, low=first.low, origin_indices=[first.index])
+        MergedBar(
+            high=first.high,
+            low=first.low,
+            origin_indices=[first.index],
+            high_index=first.index,
+            low_index=first.index,
+        )
     ]
 
     for bar in bars[1:]:
@@ -47,11 +53,19 @@ def process_inclusion(bars: List[Bar]) -> List[MergedBar]:
         if _has_inclusion(last, bar):
             direction = _current_direction(merged)
             if direction is Direction.UP:
-                last.high = max(last.high, bar.high)
-                last.low = max(last.low, bar.low)
+                if bar.high >= last.high:
+                    last.high = bar.high
+                    last.high_index = bar.index
+                if bar.low >= last.low:
+                    last.low = bar.low
+                    last.low_index = bar.index
             else:
-                last.high = min(last.high, bar.high)
-                last.low = min(last.low, bar.low)
+                if bar.high <= last.high:
+                    last.high = bar.high
+                    last.high_index = bar.index
+                if bar.low <= last.low:
+                    last.low = bar.low
+                    last.low_index = bar.index
             last.origin_indices.append(bar.index)
             last.direction = direction
         else:
@@ -62,6 +76,8 @@ def process_inclusion(bars: List[Bar]) -> List[MergedBar]:
                     low=bar.low,
                     origin_indices=[bar.index],
                     direction=direction,
+                    high_index=bar.index,
+                    low_index=bar.index,
                 )
             )
 

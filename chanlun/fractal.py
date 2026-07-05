@@ -27,7 +27,7 @@ def find_fractals(merged: List[MergedBar]) -> List[Fractal]:
                 Fractal(
                     kind=FractalType.TOP,
                     merged_index=i,
-                    bar_index=mid.index,
+                    bar_index=mid.high_index if mid.high_index >= 0 else mid.index,
                     high=mid.high,
                     low=mid.low,
                 )
@@ -37,7 +37,7 @@ def find_fractals(merged: List[MergedBar]) -> List[Fractal]:
                 Fractal(
                     kind=FractalType.BOTTOM,
                     merged_index=i,
-                    bar_index=mid.index,
+                    bar_index=mid.low_index if mid.low_index >= 0 else mid.index,
                     high=mid.high,
                     low=mid.low,
                 )

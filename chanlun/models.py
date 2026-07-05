@@ -63,12 +63,15 @@ class MergedBar:
     """经过包含处理后的合并 K 线。
 
     origin_indices 记录合并了哪些原始 K 线的下标。
+    high_index / low_index 记录极值所在的原始 K 线下标（供分型/MACD 对齐）。
     """
 
     high: float
     low: float
     origin_indices: List[int] = field(default_factory=list)
     direction: Optional[Direction] = None  # 形成该合并K线时的处理方向
+    high_index: int = -1
+    low_index: int = -1
 
     @property
     def index(self) -> int:
