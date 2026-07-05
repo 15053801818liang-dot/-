@@ -48,16 +48,18 @@ def load_parquet(path: str | Path) -> List[Bar]:
     table = pq.read_table(str(path))
     cols = {name: table.column(name).to_pylist() for name in table.column_names}
     n = len(table)
+    index_col = cols.get("index") or list(range(n))
+    volume_col = cols.get("volume") or [0.0] * n
     bars: List[Bar] = []
     for i in range(n):
         bars.append(
             Bar(
-                index=int(cols.get("index", list(range(n)))[i]),
+                index=int(index_col[i]),
                 open=float(cols["open"][i]),
                 high=float(cols["high"][i]),
                 low=float(cols["low"][i]),
                 close=float(cols["close"][i]),
-                volume=float(cols.get("volume", [0.0] * n)[i]),
+                volume=float(volume_col[i]),
             )
         )
     return bars
