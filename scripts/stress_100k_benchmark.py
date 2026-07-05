@@ -88,7 +88,7 @@ def main() -> None:
     )
     large = run_case(
         "large_100k",
-        str(ROOT / "data/BTCUSDT_5m_large.csv"),
+        str(ROOT / "data/BTCUSDT_5m_100k.csv"),
         out_dir / "large_100k_replay.json",
         config,
     )
@@ -109,6 +109,39 @@ def main() -> None:
 
     report_path = ROOT / "workspace" / "reports" / "stress_100k_benchmark.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # JSONExecutor stdio 吞吐量（模拟 chanlun_backtest stdin/stdout）
+    import subprocess
+
+    task_input = json.dumps(
+        {
+            "params": {"strategy_config_path": "configs/chanlun_btc.json"},
+            "workspace_dir": "workspace",
+            "dag_id": "stdio_probe",
+            "artifacts": {
+                "load_market_data": {
+                    "artifact_path": str(ROOT / "data/BTCUSDT_5m_100k.csv"),
+                }
+            },
+        },
+        ensure_ascii=False,
+    )
+    t0 = time.perf_counter()
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "tasks/chanlun_backtest.py")],
+        input=task_input,
+        capture_output=True,
+        text=True,
+        cwd=str(ROOT),
+    )
+    stdio_sec = time.perf_counter() - t0
+    stdout_kb = len(proc.stdout.encode()) / 1024 if proc.stdout else 0
+    summary["stdio_probe"] = {
+        "subprocess_seconds": round(stdio_sec, 3),
+        "stdout_kb": round(stdout_kb, 2),
+        "exit_code": proc.returncode,
+    }
+
     report_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
 
     print("=== 100k 结构语义压测报告 ===")
