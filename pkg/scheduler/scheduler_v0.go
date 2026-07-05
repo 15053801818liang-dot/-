@@ -7,9 +7,12 @@ import (
 	"sync"
 )
 
+const initialBlockedReason = "waiting for dependencies"
+
 // DAGSchedulerV0 v0.1 调度器核心 — 状态机 + 状态转换 + 事件预留。
 type DAGSchedulerV0 struct {
 	mu         sync.Mutex
+	instances  map[string]*DAGInstance
 	clock      Clock
 	nodeEvents NodeEventEmitter
 	logger     *log.Logger
@@ -36,6 +39,7 @@ func WithLogger(l *log.Logger) DAGSchedulerOption {
 // NewDAGSchedulerV0 创建调度器。
 func NewDAGSchedulerV0(opts ...DAGSchedulerOption) *DAGSchedulerV0 {
 	s := &DAGSchedulerV0{
+		instances:  make(map[string]*DAGInstance),
 		clock:      RealClock{},
 		nodeEvents: NoopNodeEventEmitter{},
 		logger:     log.Default(),
@@ -146,11 +150,92 @@ func (s *DAGSchedulerV0) SetNodeCancelled(ctx context.Context, instance *DAGInst
 	return s.transitionNodeStatus(ctx, instance, nodeID, StatusCancelled, reason, "")
 }
 
-// topoSort 对 DAG 进行拓扑排序（Kahn 算法 + 判环）。
-func (s *DAGSchedulerV0) topoSort(spec *DAGSpec) ([]string, error) {
+// SubmitDAG 校验 spec、判环、初始化节点状态并注册实例。
+//
+// 初始化规则：入度 0 → ready；入度 > 0 → blocked。
+func (s *DAGSchedulerV0) SubmitDAG(ctx context.Context, spec DAGSpec) (*DAGInstance, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	if err := validateDAGSpec(&spec); err != nil {
+		return nil, err
+	}
+	if _, err := s.topoSort(&spec); err != nil {
+		return nil, err
+	}
+	inDegree, _, err := buildGraph(&spec)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.instances[spec.ID]; exists {
+		return nil, fmt.Errorf("scheduler: dag %s already exists", spec.ID)
+	}
+
+	specCopy := spec
+	now := s.clock.Now()
+	instance := NewDAGInstance(&specCopy, now)
+
+	dagID := spec.ID
+	for nodeID := range spec.Nodes {
+		state := instance.NodeStates[nodeID]
+		if inDegree[nodeID] == 0 {
+			if err := validateTransition(state.Status, StatusReady); err != nil {
+				return nil, err
+			}
+			state.Status = StatusReady
+			s.emitEvent(dagID, nodeID, StatusPending, StatusReady, "", "")
+		} else {
+			if err := validateTransition(state.Status, StatusBlocked); err != nil {
+				return nil, err
+			}
+			state.Status = StatusBlocked
+			state.Error = initialBlockedReason
+			s.emitEvent(dagID, nodeID, StatusPending, StatusBlocked, initialBlockedReason, "")
+		}
+	}
+	instance.UpdatedAt = s.clock.Now()
+	s.instances[dagID] = instance
+	s.logger.Printf("dag submitted id=%s nodes=%d", dagID, len(spec.Nodes))
+	return instance, nil
+}
+
+// GetDAG 按 ID 获取已注册的 DAG 实例。
+func (s *DAGSchedulerV0) GetDAG(dagID string) (*DAGInstance, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	inst, ok := s.instances[dagID]
+	return inst, ok
+}
+
+func validateDAGSpec(spec *DAGSpec) error {
+	if spec.ID == "" {
+		return fmt.Errorf("scheduler: dag id is required")
+	}
+	if len(spec.Nodes) == 0 {
+		return fmt.Errorf("scheduler: dag must have at least one node")
+	}
+	for id, node := range spec.Nodes {
+		if id == "" {
+			return fmt.Errorf("scheduler: node id is required")
+		}
+		if node == nil {
+			return fmt.Errorf("scheduler: node %s is nil", id)
+		}
+	}
+	return nil
+}
+
+func buildGraph(spec *DAGSpec) (inDegree map[string]int, children map[string][]string, err error) {
 	nodeCount := len(spec.Nodes)
-	inDegree := make(map[string]int, nodeCount)
-	children := make(map[string][]string, nodeCount)
+	inDegree = make(map[string]int, nodeCount)
+	children = make(map[string][]string, nodeCount)
 
 	for id := range spec.Nodes {
 		inDegree[id] = 0
@@ -158,13 +243,23 @@ func (s *DAGSchedulerV0) topoSort(spec *DAGSpec) ([]string, error) {
 	for _, edge := range spec.Edges {
 		from, to := edge.From, edge.To
 		if _, ok := spec.Nodes[from]; !ok {
-			return nil, fmt.Errorf("scheduler: edge references unknown node %s", from)
+			return nil, nil, fmt.Errorf("scheduler: edge references unknown node %s", from)
 		}
 		if _, ok := spec.Nodes[to]; !ok {
-			return nil, fmt.Errorf("scheduler: edge references unknown node %s", to)
+			return nil, nil, fmt.Errorf("scheduler: edge references unknown node %s", to)
 		}
 		children[from] = append(children[from], to)
 		inDegree[to]++
+	}
+	return inDegree, children, nil
+}
+
+// topoSort 对 DAG 进行拓扑排序（Kahn 算法 + 判环）。
+func (s *DAGSchedulerV0) topoSort(spec *DAGSpec) ([]string, error) {
+	nodeCount := len(spec.Nodes)
+	inDegree, children, err := buildGraph(spec)
+	if err != nil {
+		return nil, err
 	}
 
 	queue := make([]string, 0)

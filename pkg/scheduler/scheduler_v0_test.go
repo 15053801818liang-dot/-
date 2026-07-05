@@ -231,3 +231,128 @@ func TestNewDAGInstanceAllPending(t *testing.T) {
 		t.Fatalf("expected pending, got %s", inst.NodeStates["x"].Status)
 	}
 }
+
+func TestSubmitDAGInitialStates(t *testing.T) {
+	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
+	emitter := &recordingEmitter{}
+	sched := NewDAGSchedulerV0(
+		WithClock(fixedClock{t: now}),
+		WithNodeEvents(emitter),
+	)
+	spec := DAGSpec{
+		ID: "pipeline",
+		Nodes: map[string]*Node{
+			"a": {ID: "a"},
+			"b": {ID: "b"},
+			"c": {ID: "c"},
+		},
+		Edges: []*Edge{
+			{From: "a", To: "b"},
+			{From: "a", To: "c"},
+			{From: "b", To: "c"},
+		},
+	}
+
+	inst, err := sched.SubmitDAG(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("SubmitDAG: %v", err)
+	}
+	if inst.NodeStates["a"].Status != StatusReady {
+		t.Fatalf("a: expected ready, got %s", inst.NodeStates["a"].Status)
+	}
+	if inst.NodeStates["b"].Status != StatusBlocked {
+		t.Fatalf("b: expected blocked, got %s", inst.NodeStates["b"].Status)
+	}
+	if inst.NodeStates["c"].Status != StatusBlocked {
+		t.Fatalf("c: expected blocked, got %s", inst.NodeStates["c"].Status)
+	}
+	if inst.NodeStates["b"].Error != initialBlockedReason {
+		t.Fatalf("b: expected blocked reason, got %q", inst.NodeStates["b"].Error)
+	}
+
+	got, ok := sched.GetDAG("pipeline")
+	if !ok || got != inst {
+		t.Fatal("expected instance registered in scheduler")
+	}
+
+	// 1 ready + 2 blocked events
+	if len(emitter.events) != 3 {
+		t.Fatalf("expected 3 events, got %v", emitter.events)
+	}
+}
+
+func TestSubmitDAGValidation(t *testing.T) {
+	sched := NewDAGSchedulerV0()
+	ctx := context.Background()
+
+	_, err := sched.SubmitDAG(ctx, DAGSpec{})
+	if err == nil {
+		t.Fatal("expected error for empty spec")
+	}
+
+	_, err = sched.SubmitDAG(ctx, DAGSpec{ID: "empty", Nodes: map[string]*Node{}})
+	if err == nil {
+		t.Fatal("expected error for no nodes")
+	}
+}
+
+func TestSubmitDAGCycle(t *testing.T) {
+	sched := NewDAGSchedulerV0()
+	spec := DAGSpec{
+		ID: "cycle",
+		Nodes: map[string]*Node{
+			"a": {ID: "a"},
+			"b": {ID: "b"},
+		},
+		Edges: []*Edge{
+			{From: "a", To: "b"},
+			{From: "b", To: "a"},
+		},
+	}
+	_, err := sched.SubmitDAG(context.Background(), spec)
+	if err == nil {
+		t.Fatal("expected cycle error")
+	}
+}
+
+func TestSubmitDAGDuplicate(t *testing.T) {
+	sched := NewDAGSchedulerV0()
+	spec := DAGSpec{
+		ID:    "dup",
+		Nodes: map[string]*Node{"a": {ID: "a"}},
+	}
+	ctx := context.Background()
+	if _, err := sched.SubmitDAG(ctx, spec); err != nil {
+		t.Fatalf("first submit: %v", err)
+	}
+	if _, err := sched.SubmitDAG(ctx, spec); err == nil {
+		t.Fatal("expected duplicate dag error")
+	}
+}
+
+func TestSubmitDAGContextCancelled(t *testing.T) {
+	sched := NewDAGSchedulerV0()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	spec := DAGSpec{
+		ID:    "ctx",
+		Nodes: map[string]*Node{"a": {ID: "a"}},
+	}
+	if _, err := sched.SubmitDAG(ctx, spec); err == nil {
+		t.Fatal("expected context error")
+	}
+}
+
+func TestSubmitDAGSingleNodeReady(t *testing.T) {
+	sched := NewDAGSchedulerV0()
+	inst, err := sched.SubmitDAG(context.Background(), DAGSpec{
+		ID:    "solo",
+		Nodes: map[string]*Node{"only": {ID: "only"}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitDAG: %v", err)
+	}
+	if inst.NodeStates["only"].Status != StatusReady {
+		t.Fatalf("expected ready, got %s", inst.NodeStates["only"].Status)
+	}
+}
