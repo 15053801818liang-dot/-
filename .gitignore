@@ -2,9 +2,12 @@ __pycache__/
 *.pyc
 node_modules/
 memory/
+!suire/memory/
+!suire/memory/*.json
 knowledge/
 *.json
 !configs/*.json
+!suire/memory/*.json
 !rules/*.super
 !TRUSTED.json
 benchmark_output/
