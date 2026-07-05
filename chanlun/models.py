@@ -25,6 +25,17 @@ class FractalType(Enum):
     BOTTOM = "bottom"  # 底分型
 
 
+class StrokeStandard(Enum):
+    """成笔口径（阿娇缠论 / 缠师108课体系）。
+
+    NEW — 新笔（宽笔）：A 股默认。分型不共用 K 线 + 极值之间至少 3 根原始 K 线。
+    OLD — 老笔（严笔）：包含处理后顶底之间至少 5 根合并 K 线。
+    """
+
+    NEW = "new"
+    OLD = "old"
+
+
 class TradePointType(Enum):
     """买卖点类型（缠论一/二/三类）。"""
 

@@ -30,9 +30,11 @@ from .models import (
     MergedBar,
     Pivot,
     Stroke,
+    StrokeStandard,
     TradePoint,
     TradePointType,
 )
+from .stroke_rules import valid_stroke_pair
 from .pivot import find_pivots
 from .sample import sample_bars, sample_bars_pivot, synth_bars
 from .signals import find_divergences, generate_trade_points
@@ -67,6 +69,7 @@ __all__ = [
     "TradePoint",
     "Direction",
     "FractalType",
-    "TradePointType",
+    "StrokeStandard",
+    "valid_stroke_pair",
     "__version__",
 ]

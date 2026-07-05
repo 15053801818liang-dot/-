@@ -8,7 +8,7 @@ from typing import List, Sequence, Tuple
 from .fractal import find_fractals
 from .kline import process_inclusion
 from .macd import MACDResult, macd
-from .models import Bar, Fractal, MergedBar, Pivot, Stroke, TradePoint
+from .models import Bar, Fractal, MergedBar, Pivot, Stroke, StrokeStandard, TradePoint
 from .pivot import find_pivots
 from .signals import generate_trade_points
 from .stroke import build_strokes
@@ -30,16 +30,22 @@ class ChanResult:
 class ChanAnalyzer:
     """缠论分析器。
 
-    ``min_gap`` 控制成笔所需的最小分型间隔（合并 K 线数）。
+    ``stroke_standard`` 默认 ``NEW``（阿娇缠论 / 缠师新笔，A 股口径）。
     """
 
-    def __init__(self, min_gap: int = 4):
-        self.min_gap = min_gap
+    def __init__(self, stroke_standard: StrokeStandard = StrokeStandard.NEW, min_gap: int | None = None):
+        self.stroke_standard = stroke_standard
+        self.min_gap = min_gap  # 兼容旧参数
 
     def analyze(self, bars: List[Bar]) -> ChanResult:
         merged = process_inclusion(bars)
         fractals = find_fractals(merged)
-        strokes = build_strokes(fractals, self.min_gap)
+        strokes = build_strokes(
+            fractals,
+            merged,
+            self.stroke_standard,
+            min_gap=self.min_gap,
+        )
         pivots = find_pivots(strokes)
         closes = [b.close if b.close else (b.high + b.low) / 2.0 for b in bars]
         macd_result = macd(closes)
@@ -71,6 +77,10 @@ def bars_from_hl(rows: Sequence[Tuple[float, float]]) -> List[Bar]:
     return bars
 
 
-def analyze(bars: List[Bar], min_gap: int = 4) -> ChanResult:
-    """便捷函数：一行完成分析。"""
-    return ChanAnalyzer(min_gap=min_gap).analyze(bars)
+def analyze(
+    bars: List[Bar],
+    stroke_standard: StrokeStandard = StrokeStandard.NEW,
+    min_gap: int | None = None,
+) -> ChanResult:
+    """便捷函数：一行完成分析（默认阿娇缠论新笔）。"""
+    return ChanAnalyzer(stroke_standard=stroke_standard, min_gap=min_gap).analyze(bars)

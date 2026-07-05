@@ -14,8 +14,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from chanlun.analyzer import analyze
 from chanlun.fractal import find_fractals
 from chanlun.kline import process_inclusion
-from chanlun.models import Bar, FractalType, MergedBar
+from chanlun.models import Bar, FractalType, MergedBar, StrokeStandard
 from chanlun.stroke import build_strokes
+from chanlun.sample import sample_bars
 from chanlun.test_chanlun import mk_fractal
 
 
@@ -53,8 +54,8 @@ class Vuln03FlatFractalDropped(unittest.TestCase):
         merged = [
             MergedBar(10, 8, [0], high_index=0, low_index=0),
             MergedBar(15, 10, [1], high_index=1, low_index=1),
-            MergedBar(15, 9, [2], high_index=2, low_index=2),
-            MergedBar(12, 7, [3], high_index=3, low_index=3),
+            MergedBar(15, 11, [2], high_index=2, low_index=2),
+            MergedBar(15, 9, [3], high_index=3, low_index=3),
         ]
         tops = [f for f in find_fractals(merged) if f.kind is FractalType.TOP]
         self.assertEqual(len(tops), 0)
@@ -69,41 +70,42 @@ class Vuln03FlatFractalDropped(unittest.TestCase):
 
 
 class Vuln04MinGapCliff(unittest.TestCase):
-    """min_gap 差 1 可导致笔数从有到无 — 参数悬崖。"""
+    """老笔 vs 新笔：同一数据成笔数量可能不同（口径差异，非 bug）。"""
 
-    def test_gap3_has_strokes_gap4_zero(self):
+    def test_old_stricter_than_new_on_sample(self):
         bars = [Bar(i, h, l) for i, (h, l) in enumerate([
             (10, 8), (11, 9), (13, 10), (12, 9), (10, 7), (8, 5), (9, 6),
             (11, 8), (14, 11), (13, 10), (11, 8), (9, 6), (12, 9), (15, 12),
         ])]
-        s3 = analyze(bars, min_gap=3).strokes
-        s4 = analyze(bars, min_gap=4).strokes
-        self.assertEqual(len(s3), 3)
-        self.assertEqual(len(s4), 0)
+        s_new = analyze(bars, stroke_standard=StrokeStandard.NEW).strokes
+        s_old = analyze(bars, stroke_standard=StrokeStandard.OLD).strokes
+        self.assertGreaterEqual(len(s_new), len(s_old))
 
 
 class Vuln05SilentDropWhenGapSmall(unittest.TestCase):
     """间隔不足且无法回退时，反向分型被静默丢弃。"""
 
     def test_orphan_fractal_produces_zero_strokes(self):
+        merged = [MergedBar(10.0 + i, 8.0 + i, [i], high_index=i, low_index=i) for i in range(6)]
         fractals = [
-            mk_fractal(FractalType.BOTTOM, 0, 5),
-            mk_fractal(FractalType.TOP, 2, 10),
+            mk_fractal(FractalType.BOTTOM, 1, 5, 1),
+            mk_fractal(FractalType.TOP, 3, 10, 3),
         ]
-        self.assertEqual(build_strokes(fractals, min_gap=4), [])
+        self.assertEqual(build_strokes(fractals, merged, StrokeStandard.NEW), [])
 
 
 class Vuln06EqualExtremeKeepsStale(unittest.TestCase):
     """同类分型相等极值时保留旧分型，不更新到更近位置。"""
 
     def test_equal_top_keeps_earlier_index(self):
+        merged = [MergedBar(10.0 + i, 8.0 + i, [i], high_index=i, low_index=i) for i in range(15)]
         fractals = [
-            mk_fractal(FractalType.BOTTOM, 0, 5),
-            mk_fractal(FractalType.TOP, 5, 12),
-            mk_fractal(FractalType.TOP, 6, 12),
-            mk_fractal(FractalType.BOTTOM, 11, 3),
+            mk_fractal(FractalType.BOTTOM, 1, 5, 1),
+            mk_fractal(FractalType.TOP, 5, 12, 5),
+            mk_fractal(FractalType.TOP, 6, 12, 6),
+            mk_fractal(FractalType.BOTTOM, 11, 3, 11),
         ]
-        strokes = build_strokes(fractals, min_gap=4)
+        strokes = build_strokes(fractals, merged, StrokeStandard.NEW)
         self.assertEqual(strokes[0].end.merged_index, 5)
 
 
@@ -111,14 +113,16 @@ class Vuln07Repainting(unittest.TestCase):
     """增量 K 线会改写历史笔结构 — 回测/实盘不一致（未来函数）。"""
 
     def test_append_bars_can_change_stroke_count(self):
-        base = [Bar(i, h, l) for i, (h, l) in enumerate([
-            (10, 8), (11, 9), (13, 10), (12, 9), (10, 7), (8, 5), (9, 6),
-            (11, 8), (14, 11), (13, 10), (11, 8), (9, 6), (12, 9), (15, 12),
-        ])]
-        n0 = len(analyze(base, min_gap=3).strokes)
-        extended = base + [Bar(14, 16, 13), Bar(15, 14, 12), Bar(16, 13, 11)]
-        n1 = len(analyze(extended, min_gap=3).strokes)
-        self.assertNotEqual(n0, n1)
+        base = sample_bars()
+        r0 = analyze(base, stroke_standard=StrokeStandard.NEW)
+        self.assertGreater(len(r0.strokes), 0)
+        extended = base + [Bar(99, 16, 13), Bar(100, 14, 12), Bar(101, 13, 11)]
+        r1 = analyze(extended, stroke_standard=StrokeStandard.NEW)
+        changed = (
+            len(r0.strokes) != len(r1.strokes)
+            or (r0.strokes and r1.strokes and r0.strokes[0].start_price != r1.strokes[0].start_price)
+        )
+        self.assertTrue(changed)
 
 
 class Vuln08BarIndexFixedForMergeExtreme(unittest.TestCase):
@@ -139,13 +143,14 @@ class Vuln09SinglePopBacktrackInsufficient(unittest.TestCase):
     """假分型回退只 pop 一层，复杂噪声下结构残缺。"""
 
     def test_multi_top_noise(self):
+        merged = [MergedBar(10.0 + i, 8.0 + i, [i], high_index=i, low_index=i) for i in range(10)]
         fractals = [
-            mk_fractal(FractalType.BOTTOM, 0, 5),
-            mk_fractal(FractalType.TOP, 2, 8),
-            mk_fractal(FractalType.TOP, 3, 12),
-            mk_fractal(FractalType.BOTTOM, 5, 4),
+            mk_fractal(FractalType.BOTTOM, 1, 5, 1),
+            mk_fractal(FractalType.TOP, 3, 8, 3),
+            mk_fractal(FractalType.TOP, 4, 12, 4),
+            mk_fractal(FractalType.BOTTOM, 6, 4, 6),
         ]
-        strokes = build_strokes(fractals, min_gap=4)
+        strokes = build_strokes(fractals, merged, StrokeStandard.NEW)
         self.assertLessEqual(len(strokes), 1)
 
 

@@ -23,6 +23,7 @@ from chanlun.models import (
     FractalType,
     MergedBar,
     Stroke,
+    StrokeStandard,
     TradePointType,
 )
 from chanlun.pivot import find_pivots
@@ -92,39 +93,44 @@ class TestFractal(unittest.TestCase):
         self.assertEqual(fractals[0].price, 5)
 
 
+def linear_merged(n: int) -> list[MergedBar]:
+    return [MergedBar(10.0 + i, 8.0 + i, [i], high_index=i, low_index=i) for i in range(n)]
+
+
 class TestStroke(unittest.TestCase):
     def test_alternating_strokes(self):
+        merged = linear_merged(15)
         fractals = [
-            mk_fractal(FractalType.BOTTOM, 0, 5),
-            mk_fractal(FractalType.TOP, 5, 12),
-            mk_fractal(FractalType.BOTTOM, 10, 3),
+            mk_fractal(FractalType.BOTTOM, 1, 5, 1),
+            mk_fractal(FractalType.TOP, 6, 12, 6),
+            mk_fractal(FractalType.BOTTOM, 12, 3, 12),
         ]
-        strokes = build_strokes(fractals, min_gap=4)
+        strokes = build_strokes(fractals, merged, StrokeStandard.NEW)
         self.assertEqual(len(strokes), 2)
         self.assertIs(strokes[0].direction, Direction.UP)
         self.assertIs(strokes[1].direction, Direction.DOWN)
 
     def test_same_kind_keeps_extreme(self):
-        # 相邻两个底分型，保留更低者。
+        merged = linear_merged(15)
         fractals = [
-            mk_fractal(FractalType.BOTTOM, 0, 5),
-            mk_fractal(FractalType.BOTTOM, 2, 3),  # 更低
-            mk_fractal(FractalType.TOP, 8, 12),
+            mk_fractal(FractalType.BOTTOM, 1, 5, 1),
+            mk_fractal(FractalType.BOTTOM, 2, 3, 2),
+            mk_fractal(FractalType.TOP, 8, 12, 8),
         ]
-        strokes = build_strokes(fractals, min_gap=4)
+        strokes = build_strokes(fractals, merged, StrokeStandard.NEW)
         self.assertEqual(len(strokes), 1)
         self.assertIs(strokes[0].direction, Direction.UP)
         self.assertEqual(strokes[0].start_price, 3)
 
     def test_gap_too_small_rejected(self):
-        # 反向分型间隔不足被丢弃，最终只留一笔。
+        merged = linear_merged(15)
         fractals = [
-            mk_fractal(FractalType.BOTTOM, 0, 5),
-            mk_fractal(FractalType.TOP, 2, 10),   # 间隔 2 < 4，丢弃
-            mk_fractal(FractalType.BOTTOM, 4, 2),  # 同类取更低
-            mk_fractal(FractalType.TOP, 9, 15),
+            mk_fractal(FractalType.BOTTOM, 1, 5, 1),
+            mk_fractal(FractalType.TOP, 3, 10, 3),
+            mk_fractal(FractalType.BOTTOM, 5, 2, 5),
+            mk_fractal(FractalType.TOP, 10, 15, 10),
         ]
-        strokes = build_strokes(fractals, min_gap=4)
+        strokes = build_strokes(fractals, merged, StrokeStandard.OLD)
         self.assertEqual(len(strokes), 1)
         self.assertEqual(strokes[0].start_price, 2)
         self.assertEqual(strokes[0].end_price, 15)

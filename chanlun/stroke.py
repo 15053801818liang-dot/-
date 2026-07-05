@@ -1,24 +1,31 @@
-"""笔的构建。
+"""笔的构建 — 阿娇缠论 / 缠师新笔（默认）与老笔。
 
-由交替的顶/底分型连接成笔，需满足：
-1. 顶底分型严格交替（顶-底-顶-底…）。
-2. 相邻两分型之间在合并 K 线上的间隔不小于 ``min_gap``
-   （默认 4，即含两端至少 5 根合并 K 线，对应经典"老笔"口径）。
-
-实现采用带回退的贪心：当出现间隔不足的反向分型时，
-若它比更早的同类分型更极端，则弹出中间的"假分型"并重试，
-从而在噪声数据上仍能得到稳定的笔序列。
+成笔规则见 ``stroke_rules.valid_stroke_pair``。
+采用带回退的贪心：间隔不足时若新分型更极端则弹出假分型重试。
 """
 
 from __future__ import annotations
 
 from typing import List
 
-from .models import Direction, Fractal, FractalType, Stroke
+from .models import Direction, Fractal, FractalType, MergedBar, Stroke, StrokeStandard
+from .stroke_rules import valid_stroke_pair
 
 
-def build_strokes(fractals: List[Fractal], min_gap: int = 4) -> List[Stroke]:
-    """从分型序列构建笔序列。"""
+def build_strokes(
+    fractals: List[Fractal],
+    merged: List[MergedBar],
+    standard: StrokeStandard = StrokeStandard.NEW,
+    *,
+    min_gap: int | None = None,
+) -> List[Stroke]:
+    """从分型序列构建笔序列。
+
+    ``min_gap`` 已废弃，保留仅为兼容旧调用；请使用 ``standard``。
+    """
+    if min_gap is not None and standard is StrokeStandard.NEW:
+        standard = StrokeStandard.OLD if min_gap >= 4 else StrokeStandard.NEW
+
     confirmed: List[Fractal] = []
 
     for f in fractals:
@@ -30,7 +37,6 @@ def build_strokes(fractals: List[Fractal], min_gap: int = 4) -> List[Stroke]:
             last = confirmed[-1]
 
             if f.kind is last.kind:
-                # 同类型分型：保留更极端者。
                 more_extreme = (
                     f.high > last.high
                     if f.kind is FractalType.TOP
@@ -40,22 +46,21 @@ def build_strokes(fractals: List[Fractal], min_gap: int = 4) -> List[Stroke]:
                     confirmed[-1] = f
                 break
 
-            gap = abs(f.merged_index - last.merged_index)
-            if gap >= min_gap:
+            if valid_stroke_pair(last, f, merged, standard):
                 confirmed.append(f)
                 break
 
-            # 间隔不足：last 可能是未成笔的"假分型"。
             if len(confirmed) >= 2:
-                prev = confirmed[-2]  # 与 f 同类型
-                f_more_extreme = (
-                    f.high > prev.high
-                    if f.kind is FractalType.TOP
-                    else f.low < prev.low
-                )
-                if f_more_extreme:
-                    confirmed.pop()  # 弹出假分型，回退重试
-                    continue
+                prev = confirmed[-2]
+                if prev.kind is f.kind:
+                    f_more_extreme = (
+                        f.high > prev.high
+                        if f.kind is FractalType.TOP
+                        else f.low < prev.low
+                    )
+                    if f_more_extreme and not valid_stroke_pair(prev, last, merged, standard):
+                        confirmed.pop()
+                        continue
             break
 
     strokes: List[Stroke] = []

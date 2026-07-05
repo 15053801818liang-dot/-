@@ -15,7 +15,8 @@ from chanlun import analyze, bars_from_hl
 
 # (high, low) 列表；也可用 bars_from_ohlc([(open, high, low, close), ...])
 bars = bars_from_hl([(10, 9), (11, 10), (12, 11), ...])
-result = analyze(bars)                 # min_gap 可调，默认 4（老笔口径）
+result = analyze(bars)                 # 默认阿娇缠论新笔 (StrokeStandard.NEW)
+result = analyze(bars, stroke_standard=StrokeStandard.OLD)  # 老笔/严笔
 
 for tp in result.trade_points:
     print(tp.kind.value, tp.bar_index, tp.price, tp.reason)
@@ -47,7 +48,8 @@ python3 -m pytest chanlun/test_chanlun.py
 | `models.py` | 数据结构（Bar / MergedBar / Fractal / Stroke / Pivot / TradePoint） |
 | `kline.py` | K 线包含处理（按走势方向合并） |
 | `fractal.py` | 顶/底分型识别 |
-| `stroke.py` | 笔构建（顶底交替 + 间隔约束 + 假分型回退） |
+| `stroke_rules.py` | 阿娇缠论成笔规则校验（新笔/老笔） |
+| `stroke.py` | 笔构建（顶底交替 + 规则校验 + 假分型回退） |
 | `pivot.py` | 中枢识别（连续三笔重叠 + 终点延伸判定） |
 | `macd.py` | EMA / MACD / 柱面积（力度度量） |
 | `signals.py` | 背驰判定与一/二/三类买卖点 |
@@ -58,7 +60,12 @@ python3 -m pytest chanlun/test_chanlun.py
 ## 算法口径与边界
 
 - **包含处理**：向上取「高高、低取高」，向下取「低低、高取低」；方向由已合并序列最后两根判定。
-- **笔**：默认 `min_gap=4`（相邻分型合并 K 线间隔 ≥ 4，含两端 ≥ 5 根，经典"老笔"）。
+- **分型（阿娇/108课）**：顶分型 = 中间 K 线高、低点均为三根中最高；底分型 = 中间 K 线高、低点均为三根中最低。
+- **笔（默认新笔）**：
+  1. 顶底分型不共用原始 K 线；
+  2. 顶分型最高 K 与底分型最低 K 之间（不含端点）≥ 3 根原始 K 线；
+  3. 合并 K 线跨度 ≥ 4 根。
+- **老笔（严笔）**：`StrokeStandard.OLD`，合并 K 线跨度 ≥ 5 根。
 - **中枢**：`ZG = min(头三笔高点)`，`ZD = max(头三笔低点)`，`ZG > ZD` 成立；后续笔**终点**仍在 `[ZD, ZG]` 内则延伸，脱离即为离开中枢。
 - **背驰**：相邻同向笔（i 与 i-2）比较，后一笔创新高/新低但 MACD 柱面积更小。
 - 这是**笔级别**的工程化近似实现，未含线段、递归级别与走势类型的完整判定；适合作为可测试、可扩展的基础内核。
