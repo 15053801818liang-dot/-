@@ -66,7 +66,7 @@ func (d *DAG) Run() (*RunResult, error) {
 				entry["report_path"] = rp
 			}
 			for _, key := range []string{
-				"pangu_logic_interpretation", "market_state_code", "confidence",
+				"pangu_logic_interpretation", "market_state_code", "confidence", "semantic_audit",
 			} {
 				if v, ok := p[key]; ok {
 					entry[key] = v

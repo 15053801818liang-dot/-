@@ -46,6 +46,12 @@ class WriteReplayReport(TaskBase):
             or pangu_payload.get("confidence")
             or 0.0
         )
+        semantic_audit = (
+            pangu_art.get("semantic_audit")
+            or pangu_payload.get("semantic_audit")
+            or {}
+        )
+        structure_detail = result.get("structure_detail") or {}
 
         reports_dir = Path(workspace_dir) / "reports"
         reports_dir.mkdir(parents=True, exist_ok=True)
@@ -79,6 +85,41 @@ class WriteReplayReport(TaskBase):
             f"| 中枢数 | {metrics.get('pivots_count', 0)} |",
             f"| 买卖信号 | {metrics.get('signals_count', 0)} |",
             "",
+            "## 缠论结构语义",
+            "",
+        ]
+        struct_start = len(lines)
+
+        if structure_detail.get("last_stroke"):
+            ls = structure_detail["last_stroke"]
+            lines.append(
+                f"- 当前笔: #{ls.get('index', '?')} "
+                f"({ls.get('direction', '?')}) "
+                f"终点价 {ls.get('end_price', 'N/A')}"
+            )
+        if structure_detail.get("active_pivots"):
+            ap = structure_detail["active_pivots"][-1]
+            lines.append(
+                f"- 活跃中枢: ZG={ap.get('zg')} ZD={ap.get('zd')} "
+                f"(笔区间 {ap.get('start_index')}–{ap.get('end_index')})"
+            )
+        if structure_detail.get("last_divergence"):
+            d = structure_detail["last_divergence"]
+            lines.append(
+                f"- 最近背驰: {d.get('reason')} @ bar#{d.get('bar_index')} "
+                f"价 {d.get('price')}"
+            )
+        if structure_detail.get("trade_points"):
+            tp = structure_detail["trade_points"][-1]
+            lines.append(
+                f"- 末次信号: `{tp.get('kind')}` — {tp.get('reason')} "
+                f"@ bar#{tp.get('bar_index')}"
+            )
+        if len(lines) == struct_start:
+            lines.append("- （无结构细节，请重新运行 chanlun_backtest）")
+
+        lines.extend([
+            "",
             "## 回测指标",
             "",
             f"| 指标 | 毛收益 (无摩擦) | 净收益 (含摩擦) |",
@@ -106,6 +147,23 @@ class WriteReplayReport(TaskBase):
             f"- **市场状态码**: `{market_state}`",
             f"- **置信度**: {float(confidence):.2f}",
             "",
+        ])
+
+        if semantic_audit.get("active_pivot"):
+            ap = semantic_audit["active_pivot"]
+            lines.append(
+                f"- **语义审计**: 第 {semantic_audit.get('stroke_index', 0) + 1} 笔，"
+                f"中枢 ZG={ap.get('zg')} ZD={ap.get('zd')}，"
+                f"位置 {semantic_audit.get('pivot_position', '未知')}"
+            )
+        if semantic_audit.get("last_signal"):
+            sig = semantic_audit["last_signal"]
+            lines.append(
+                f"- **确认信号**: `{sig.get('kind')}` — {sig.get('reason')}"
+            )
+
+        lines.extend([
+            "",
             "## 御史台审计声明",
             "",
             "- 本报告由 Go 调度器驱动 Python 任务链自动生成",
@@ -114,7 +172,7 @@ class WriteReplayReport(TaskBase):
             "- 结果 artifact 路径可追溯，支持复现",
             "",
             f"原始结果 JSON: `{bt_path}`",
-        ]
+        ])
 
         report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

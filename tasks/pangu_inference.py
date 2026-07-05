@@ -40,9 +40,11 @@ class PanguInference(TaskBase):
             "pangu_logic_interpretation": inference["interpretation"],
             "market_state_code": inference["state_code"],
             "confidence": inference["confidence"],
+            "semantic_audit": inference.get("semantic_audit", {}),
             "summary": {
                 "state_code": inference["state_code"],
                 "confidence": inference["confidence"],
+                "stroke_index": inference.get("semantic_audit", {}).get("stroke_index"),
             },
         }
 

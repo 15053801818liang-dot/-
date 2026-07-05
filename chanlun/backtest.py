@@ -6,6 +6,7 @@ import math
 from typing import Any, Dict, List, Optional
 
 from .incremental import analyze_auto, analyze_incremental
+from .export import export_chanlun_structure
 from .models import Bar, StrokeStandard, TradePointType
 
 
@@ -198,6 +199,9 @@ def run_chanlun_backtest(bars: List[Bar], config: Optional[Dict[str, Any]] = Non
 
     out = _simulate(bars, result, config)
     out["structure"]["stroke_standard"] = standard.value
+    out["structure_detail"] = export_chanlun_structure(result)
+    if bars:
+        out["structure_detail"]["last_close"] = bars[-1].close
     out["audit"] = {
         "engine": "chanlun",
         "version": "0.1.0",

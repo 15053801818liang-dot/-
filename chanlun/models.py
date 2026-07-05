@@ -105,6 +105,16 @@ class Fractal:
         """分型的极值价：顶分型取高点，底分型取低点。"""
         return self.high if self.kind is FractalType.TOP else self.low
 
+    def to_dict(self) -> dict:
+        return {
+            "kind": self.kind.value,
+            "merged_index": self.merged_index,
+            "bar_index": self.bar_index,
+            "high": self.high,
+            "low": self.low,
+            "price": self.price,
+        }
+
 
 @dataclass
 class Stroke:
@@ -140,6 +150,19 @@ class Stroke:
         """跨越的原始 K 线根数。"""
         return abs(self.end.bar_index - self.start.bar_index)
 
+    def to_dict(self) -> dict:
+        return {
+            "direction": self.direction.value,
+            "start": self.start.to_dict(),
+            "end": self.end.to_dict(),
+            "start_price": self.start_price,
+            "end_price": self.end_price,
+            "high": self.high,
+            "low": self.low,
+            "amplitude": self.amplitude,
+            "bar_span": self.bar_span,
+        }
+
 
 @dataclass
 class Pivot:
@@ -163,6 +186,17 @@ class Pivot:
     def height(self) -> float:
         return self.zg - self.zd
 
+    def to_dict(self) -> dict:
+        return {
+            "zg": self.zg,
+            "zd": self.zd,
+            "mid": self.mid,
+            "height": self.height,
+            "start_index": self.start_index,
+            "end_index": self.end_index,
+            "stroke_count": len(self.strokes),
+        }
+
 
 @dataclass
 class TradePoint:
@@ -172,3 +206,11 @@ class TradePoint:
     bar_index: int
     price: float
     reason: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "kind": self.kind.value,
+            "bar_index": self.bar_index,
+            "price": self.price,
+            "reason": self.reason,
+        }
