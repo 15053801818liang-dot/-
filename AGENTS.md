@@ -36,7 +36,11 @@ This repo contains **three independent products**:
 - Go chanlun backtest pipeline: `go run ./cmd/go-scheduler/` (requires Go 1.22+,
   `python3` on PATH). Generates artifacts under `workspace/artifacts/` and
   `workspace/reports/`. Uses `data/BTCUSDT_5m.csv` (regenerate via
-  `python3 scripts/generate_btc_csv.py`).
+  `python3 scripts/generate_btc_csv.py`). Large stress data:
+  `python3 scripts/generate_btc_large.py -n 100000` then
+  `SOURCE_PATH=data/BTCUSDT_5m_large.csv go run ./cmd/go-scheduler/`.
+  Optional parquet: `pip install -r requirements-backtest.txt`.
+  Import external CSV: `python3 scripts/import_market_csv.py /path/to/your.csv`.
 - Pangu tests are run **directly**, not via pytest (filenames contain dots).
   See `盘古/.github/workflows/test.yml`:
   `cd 盘古 && python3 test_pangu_v0.10.0.py && python3 test_comprehensive.py && python3 test_pangu_v011.py`.
