@@ -54,6 +54,16 @@ func (r *Runner) Run(task *Task) (*ReportResponse, error) {
 				},
 			},
 			{
+				ID:     "join_union_report",
+				Script: "tasks/join_union_report.py",
+				Params: map[string]interface{}{},
+			},
+			{
+				ID:     "pangu_inference",
+				Script: "tasks/pangu_inference.py",
+				Params: map[string]interface{}{},
+			},
+			{
 				ID:     "write_replay_report",
 				Script: "tasks/write_replay_report.py",
 				Params: map[string]interface{}{},
@@ -98,6 +108,22 @@ func buildReport(projectRoot, workspace, taskID string, result *scheduler.RunRes
 		resp.DuanCount = intFrom(m, "duan_count")
 		resp.SignalCount = intFrom(m, "signals_count")
 		resp.DivergenceCnt = intFrom(m, "divergence_count")
+	}
+
+	unionPath := filepath.Join(projectRoot, workspace, "artifacts", taskID, "union_report.json")
+	if ub, err := os.ReadFile(unionPath); err == nil {
+		var union struct {
+			CrossDomain struct {
+				AlignmentScore float64 `json:"alignment_score"`
+				Status         string  `json:"status"`
+				RiskIndicator  float64 `json:"risk_indicator"`
+			} `json:"cross_domain"`
+		}
+		if err := json.Unmarshal(ub, &union); err == nil {
+			resp.AlignmentScore = union.CrossDomain.AlignmentScore
+			resp.CrossDomainStat = union.CrossDomain.Status
+			resp.RiskIndicator = union.CrossDomain.RiskIndicator
+		}
 	}
 	return resp, nil
 }
