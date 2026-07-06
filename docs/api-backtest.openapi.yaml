@@ -1,0 +1,130 @@
+openapi: 3.0.3
+info:
+  title: Myth002 Chanlun Backtest API
+  version: 0.1.0
+  description: HTTP API for submitting and retrieving chanlun backtest results.
+servers:
+  - url: http://localhost:8080
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+  /api/backtest:
+    post:
+      summary: Submit a chanlun backtest job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitRequest"
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmitResponse"
+        "400":
+          description: Invalid request
+  /api/backtest/{id}:
+    get:
+      summary: Get backtest task status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskStatus"
+        "404":
+          description: Task not found
+  /api/report/{id}:
+    get:
+      summary: Get backtest report for a completed task
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Report payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportResponse"
+        "404":
+          description: Task not found
+        "409":
+          description: Report not ready
+components:
+  schemas:
+    SubmitRequest:
+      type: object
+      required: [symbol, interval, start_date, end_date]
+      properties:
+        symbol:
+          type: string
+          example: PEPEUSDT
+        interval:
+          type: string
+          example: 5m
+        start_date:
+          type: string
+          format: date
+          example: "2025-06-01"
+        end_date:
+          type: string
+          format: date
+          example: "2026-05-31"
+    SubmitResponse:
+      type: object
+      properties:
+        task_id:
+          type: string
+        status:
+          type: string
+          enum: [submitted, running, completed, failed]
+    TaskStatus:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+    ReportResponse:
+      type: object
+      properties:
+        bi_count:
+          type: integer
+        duan_count:
+          type: integer
+        signal_count:
+          type: integer
+        divergence_count:
+          type: integer
+        raw_report:
+          type: string
