@@ -28,11 +28,14 @@ type TaskStatus struct {
 
 // ReportResponse GET /api/report/{id} response.
 type ReportResponse struct {
-	BiCount       int    `json:"bi_count"`
-	DuanCount     int    `json:"duan_count"`
-	SignalCount   int    `json:"signal_count"`
-	DivergenceCnt int    `json:"divergence_count"`
-	RawReport     string `json:"raw_report"`
+	BiCount           int     `json:"bi_count"`
+	DuanCount         int     `json:"duan_count"`
+	SignalCount       int     `json:"signal_count"`
+	DivergenceCnt     int     `json:"divergence_count"`
+	AlignmentScore    float64 `json:"alignment_score,omitempty"`
+	CrossDomainStatus string  `json:"cross_domain_status,omitempty"`
+	PanguStateCode    string  `json:"pangu_state_code,omitempty"`
+	RawReport         string  `json:"raw_report"`
 }
 
 // Task persisted backtest job.

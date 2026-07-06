@@ -28,6 +28,9 @@ class WriteReplayReport(TaskBase):
         audit = result.get("audit", {})
         load_summary = load_art.get("summary") or load_art.get("payload", {}).get("summary", {})
 
+        union_data = self._load_optional_json(artifacts, "join_union_report")
+        pangu_data = self._load_optional_json(artifacts, "pangu_inference")
+
         reports_dir = Path(workspace_dir) / "reports"
         reports_dir.mkdir(parents=True, exist_ok=True)
         report_path = reports_dir / f"{dag_id}.md"
@@ -78,6 +81,41 @@ class WriteReplayReport(TaskBase):
             f"| 累计滑点成本 | {metrics.get('total_slippage_cost', 0)} |",
             f"| 摩擦拖累 | {metrics.get('friction_drag', 0)} |",
             f"| 成交笔数 | {metrics.get('total_trades', 0)} |",
+        ]
+
+        if union_data:
+            cross = union_data.get("cross_domain", {})
+            immune = union_data.get("immune", {})
+            lines.extend([
+                "",
+                "## 跨域联合分析",
+                "",
+                f"| 指标 | 值 |",
+                f"|------|-----|",
+                f"| 免疫数据源 | {immune.get('source', 'N/A')} |",
+                f"| 记忆/耗竭比 (应答者) | {immune.get('mem_exh_ratio_responder', 'N/A')} |",
+                f"| 记忆/耗竭比 (非应答者) | {immune.get('mem_exh_ratio_nonresponder', 'N/A')} |",
+                f"| 免疫 AUC (LOO) | {immune.get('auc_loo', 'N/A')} |",
+                f"| 跨域一致性评分 | {cross.get('alignment_score', 'N/A')} |",
+                f"| 跨域状态 | {cross.get('status', 'N/A')} |",
+                f"| 综合风险指标 | {cross.get('risk_indicator', 'N/A')} |",
+            ])
+
+        if pangu_data:
+            lines.extend([
+                "",
+                "## 盘古符号推理",
+                "",
+                f"| 字段 | 值 |",
+                f"|------|-----|",
+                f"| 状态码 | {pangu_data.get('state_code', 'N/A')} |",
+                f"| 置信度 | {pangu_data.get('confidence', 'N/A')} |",
+                f"| 跨域对齐 | {pangu_data.get('cross_domain_align', 'N/A')} |",
+                "",
+                f"> {pangu_data.get('interpretation', '')}",
+            ])
+
+        lines.extend([
             "",
             "## 御史台审计声明",
             "",
@@ -87,13 +125,24 @@ class WriteReplayReport(TaskBase):
             "- 结果 artifact 路径可追溯，支持复现",
             "",
             f"原始结果 JSON: `{bt_path}`",
-        ]
+        ])
 
         report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
         out_dir = artifact_dir(workspace_dir, dag_id)
         meta_path = out_dir / "report_meta.json"
-        meta = {"report_path": str(report_path), "metrics": metrics, "audit": audit}
+        meta = {
+            "report_path": str(report_path),
+            "metrics": metrics,
+            "audit": audit,
+        }
+        if union_data:
+            meta["cross_domain"] = union_data.get("cross_domain")
+        if pangu_data:
+            meta["pangu"] = {
+                "state_code": pangu_data.get("state_code"),
+                "confidence": pangu_data.get("confidence"),
+            }
         meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
 
         return {
@@ -101,6 +150,15 @@ class WriteReplayReport(TaskBase):
             "report_path": str(report_path),
             "summary": metrics,
         }
+
+    @staticmethod
+    def _load_optional_json(artifacts, node_id: str):
+        art = artifacts.get(node_id, {})
+        path = art.get("artifact_path") or art.get("payload", {}).get("artifact_path")
+        if not path or not Path(path).exists():
+            return None
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
 
 
 if __name__ == "__main__":

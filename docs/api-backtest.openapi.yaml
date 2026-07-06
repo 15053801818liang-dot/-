@@ -126,5 +126,12 @@ components:
           type: integer
         divergence_count:
           type: integer
+        alignment_score:
+          type: number
+          format: float
+        cross_domain_status:
+          type: string
+        pangu_state_code:
+          type: string
         raw_report:
           type: string
