@@ -82,7 +82,7 @@ class WriteReplayReport(TaskBase):
             "## 御史台审计声明",
             "",
             "- 本报告由 Go 调度器驱动 Python 任务链自动生成",
-            "- 任务流: load_market_data → chanlun_backtest → write_replay_report",
+            "- 任务流: load_market_data → chanlun_backtest → join_union_report → pangu_inference → write_replay_report",
             "- 交易逻辑: chanlun 缠论买卖点 (非 SMA)",
             "- 结果 artifact 路径可追溯，支持复现",
             "",

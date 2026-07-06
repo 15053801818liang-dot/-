@@ -59,6 +59,16 @@ func main() {
 				},
 			},
 			{
+				ID:     "join_union_report",
+				Script: "tasks/join_union_report.py",
+				Params: map[string]interface{}{},
+			},
+			{
+				ID:     "pangu_inference",
+				Script: "tasks/pangu_inference.py",
+				Params: map[string]interface{}{},
+			},
+			{
 				ID:     "write_replay_report",
 				Script: "tasks/write_replay_report.py",
 				Params: map[string]interface{}{},
