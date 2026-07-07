@@ -1,3 +1,0 @@
-etcd3
-prometheus-client
-psutil

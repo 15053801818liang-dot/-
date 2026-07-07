@@ -1,0 +1,10 @@
+{
+  "BUY": {
+    "threshold": 0.7,
+    "patterns": ["divergence_confirm", "trend_reversal"]
+  },
+  "SELL": {
+    "threshold": 0.7,
+    "patterns": ["overbought", "bearish_divergence"]
+  }
+}
