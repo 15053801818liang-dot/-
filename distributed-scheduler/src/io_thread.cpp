@@ -31,7 +31,10 @@ void io_thread_main() {
         try {
             zmq::poll(items, 1, std::chrono::milliseconds(POLL_TIMEOUT_MS));
         } catch (const zmq::error_t& e) {
-            if (e.num() == EINTR) continue;
+            // 客户端连接洪泛导致 FD 耗尽时，libzmq 内部丢弃新连接，
+            // 已建立连接仍可服务；不因瞬时错误崩溃整个 Hub。
+            if (e.num() == EINTR || e.num() == EAGAIN ||
+                e.num() == EMFILE || e.num() == ENFILE) continue;
             throw;
         }
 

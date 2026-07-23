@@ -46,9 +46,29 @@ cmake --build build -j
 | 调度效率 | 每次 CV 唤醒批量排空 recv 队列，唤醒数 ≈ 消息数 × 0.5，无空转 |
 | 崩溃恢复 | `kill -9` 后 WAL（~1.6MB）完好；重启回放 17522 条 pending，新 worker 接入后 drain 至完成，`assigned==completed`，无任务丢失、无幽灵 worker |
 
-> 关于规模：原文声称「2000w / 5 万 Worker 已验证」。本沙箱实测为 200 worker / 2 万任务
-> 量级的**真实**端到端数字。5 万条 DEALER 连接涉及 FD 上限与 TCP 资源，属另一量级，
-> 本环境未验证——不做未经测试的规模声明。
+### 规模压测（真跑，找瓶颈）
+
+原文声称「2000w / 5 万 Worker 已验证」。实测在本机（4 核 / 16GB / `ulimit -n` 硬上限
+**4096**，无权提高）把真实天花板压了出来：
+
+| requested | connected | completed | throughput |
+|---|---|---|---|
+| 500  | 500/500   | 50000/50000 | **50k tasks/s** |
+| 1000 | 1000/1000 | 50000/50000 | 45k tasks/s |
+| 2000 | 2000/2000 | 50000/50000 | 38k tasks/s |
+| 2400 | 2283/2400 | 超时（部分连接建不起来） | — |
+| 3000 | 2551/3000 | 超时 | — |
+| 4000 | 2391/4000 | 超时 | — |
+
+结论：
+
+- **硬天花板 ≈ 2000 并发 worker / 进程**。libzmq 每条 DEALER 连接在 Linux 上约占 **2 个 fd**
+  （1 个 eventfd signaler + 1 个 TCP fd），4096 / 2 ≈ 2000。超过后触发 `EMFILE (errno 24)`。
+  **5 万在本机物理上不可能**（约差 25 倍），需要 `ulimit -n` 提到 ~120k 且多机分摊。
+- **吞吐是调度器瓶颈，不是 worker 瓶颈**：单锁单调度线程串行派发，worker 越多不增吞吐；
+  相反 50k→38k 略降，因为更多 socket 带来更多 `poll`/上下文切换开销（4 核）。
+- **FD 耗尽下优雅降级**：加固后，撞上限的 worker 线程与 Hub 的 IO 线程捕获 `EMFILE/ENFILE`
+  退出/继续，而不是 `terminate` 崩溃（加固前两端都会 abort，见修复项 17）。
 
 ## 线协议
 
@@ -95,6 +115,11 @@ DEALER(worker/client) 发送 `[空分隔帧, JSON]`；ROUTER 自动前置 identi
 14. **原压测根本不产生负载**：只注册 worker，无任何 `SUBMIT_TASK`，Hub 全程空转。重写为真实 submit→dispatch→done 负载生成器并统计吞吐。
 15. 回放语义与单测自相矛盾：原代码把「已派发未完成」放入 `active_tasks`，单测却断言其在 `pending`；且原 TEST 3 断言「截断→pending 为空」与 TEST 4「坏 opcode→保留有效帧」互斥。统一为崩溃正确语义并修正 TEST 3 断言。
 16. **实跑发现的恢复缺陷**：`WORKER_READY` 被写入并回放 WAL，重启后凭空造出「幽灵空闲 worker」，任务被派发给已不存在的 identity（要等 120s busy-reaper 才重入队）。worker 存活属活连接状态，已从 WAL 移除。
+
+17. **FD 耗尽下崩溃（规模压测发现）**：连接数逼近 `ulimit -n` 时，libzmq 的 `poll`/`send`
+    抛出 `EMFILE`，原代码未捕获 → worker 端与 **Hub** 双双 `terminate` abort（压测中 Hub 直接挂掉、
+    无 METRICS 输出）。已加固：worker 线程遇 `EMFILE/ENFILE` 退出该线程、Hub IO 线程捕获并继续
+    服务已建立的连接，实现优雅降级。
 
 此外：全面移植到现代 cppzmq API（`set(sockopt::…)` / `recv(msg, recv_flags)` / `send(msg, send_flags)` / `poll(ptr,n,timeout)`），消除废弃接口告警。
 

@@ -15,6 +15,7 @@ using json = nlohmann::json;
 
 static std::atomic<bool>     g_running{true};
 static std::atomic<uint64_t> g_done{0};
+static std::atomic<int>      g_created{0};   // 实际成功建立的 worker 连接数
 
 static std::string endpoint = "tcp://localhost:5555";
 
@@ -45,13 +46,23 @@ static void worker_thread(int start_id, int end_id) {
     workers.reserve(end_id - start_id);
 
     for (int i = start_id; i < end_id; ++i) {
-        zmq::socket_t sock(ctx, zmq::socket_type::dealer);
-        std::string identity = "worker_" + std::to_string(i);
-        sock.set(zmq::sockopt::routing_id, identity);
-        sock.set(zmq::sockopt::linger, 0);
-        sock.connect(endpoint);
-        send_msg(sock, R"({"op":"WORKER_READY"})");
-        workers.push_back(std::move(sock));
+        try {
+            zmq::socket_t sock(ctx, zmq::socket_type::dealer);
+            std::string identity = "worker_" + std::to_string(i);
+            sock.set(zmq::sockopt::routing_id, identity);
+            sock.set(zmq::sockopt::linger, 0);
+            sock.connect(endpoint);
+            send_msg(sock, R"({"op":"WORKER_READY"})");
+            workers.push_back(std::move(sock));
+            g_created.fetch_add(1, std::memory_order_relaxed);
+        } catch (const zmq::error_t& e) {
+            // 撞到 EMFILE / 资源上限：停止本线程继续建连，用已建成的部分参与压测
+            static std::atomic<bool> reported{false};
+            if (!reported.exchange(true))
+                std::cerr << "[worker] socket create failed at ~" << i
+                          << ": " << e.what() << " (errno=" << e.num() << ")\n";
+            break;
+        }
     }
 
     std::vector<zmq::pollitem_t> items;
@@ -60,19 +71,25 @@ static void worker_thread(int start_id, int end_id) {
         items.push_back({ static_cast<void*>(w), 0, ZMQ_POLLIN, 0 });
 
     while (g_running.load()) {
-        zmq::poll(items.data(), items.size(), std::chrono::milliseconds(POLL_TIMEOUT_MS));
-        for (size_t i = 0; i < items.size(); ++i) {
-            if (!(items[i].revents & ZMQ_POLLIN)) continue;
-            std::string payload;
-            while (recv_payload(workers[i], payload)) {
-                auto j = json::parse(payload, nullptr, false);
-                if (j.is_discarded()) continue;
-                if (j.value("op", "") == Op::RUN_TASK) {
-                    json done = {{"op", Op::TASK_DONE}, {"task_id", j.value("task_id", "")}};
-                    send_msg(workers[i], done.dump());
-                    g_done.fetch_add(1, std::memory_order_relaxed);
+        try {
+            zmq::poll(items.data(), items.size(), std::chrono::milliseconds(POLL_TIMEOUT_MS));
+            for (size_t i = 0; i < items.size(); ++i) {
+                if (!(items[i].revents & ZMQ_POLLIN)) continue;
+                std::string payload;
+                while (recv_payload(workers[i], payload)) {
+                    auto j = json::parse(payload, nullptr, false);
+                    if (j.is_discarded()) continue;
+                    if (j.value("op", "") == Op::RUN_TASK) {
+                        json done = {{"op", Op::TASK_DONE}, {"task_id", j.value("task_id", "")}};
+                        send_msg(workers[i], done.dump());
+                        g_done.fetch_add(1, std::memory_order_relaxed);
+                    }
                 }
             }
+        } catch (const zmq::error_t& e) {
+            if (e.num() == EINTR) continue;
+            if (e.num() == EMFILE || e.num() == ENFILE) break;   // FD 上限：本线程退出而非 abort
+            throw;
         }
     }
 }
@@ -100,13 +117,24 @@ int main(int argc, char** argv) {
 
     // 让 worker 完成注册
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    std::cout << "workers connected: " << g_created.load() << "/" << total_workers
+              << std::endl;   // 立即 flush，避免撞上限时缓冲丢失
 
     // 提交任务
     zmq::context_t ctx(1);
     zmq::socket_t submitter(ctx, zmq::socket_type::dealer);
-    submitter.set(zmq::sockopt::routing_id, std::string("submitter"));
-    submitter.set(zmq::sockopt::linger, 0);
-    submitter.connect(endpoint);
+    try {
+        submitter.set(zmq::sockopt::routing_id, std::string("submitter"));
+        submitter.set(zmq::sockopt::linger, 0);
+        submitter.connect(endpoint);
+    } catch (const zmq::error_t& e) {
+        std::cout << "FD ceiling hit: cannot open submitter (" << e.what()
+                  << "). connected=" << g_created.load()
+                  << " — connection ceiling reached for this process." << std::endl;
+        g_running.store(false);
+        for (auto& th : threads) th.join();
+        return 2;
+    }
 
     auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < total_tasks; ++i) {
