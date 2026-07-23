@@ -33,6 +33,22 @@ python chat.py --model claude-haiku-4-5 "你好"
 python chat.py --chat
 ```
 
+## 进阶示例
+
+```bash
+# 结构化输出：抽取成校验过的 JSON 对象（Pydantic + output_format）
+python structured_output.py
+
+# 工具调用 / function calling：手写 agentic 循环，含天气 + 安全计算器
+python tools.py "北京天气怎么样，顺便算一下 (23+19)/2"
+
+# Prompt caching 省钱：同一大段上下文，第 2 次请求命中缓存按 ~0.1x 计价
+python caching.py
+```
+
+进阶示例需要较新 SDK——先 `pip install -U anthropic`（结构化输出/工具需要）。
+`tools.py` 的计算器用 AST 求值而非 `eval`，注入表达式会被安全拒绝。
+
 ## 模型 ID
 
 用**精确字符串**，不要加日期后缀：
