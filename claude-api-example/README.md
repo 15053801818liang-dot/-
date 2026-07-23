@@ -44,6 +44,9 @@ python tools.py "北京天气怎么样，顺便算一下 (23+19)/2"
 
 # Prompt caching 省钱：同一大段上下文，第 2 次请求命中缓存按 ~0.1x 计价
 python caching.py
+
+# Batch API：批量任务打 5 折，提交->轮询->按 custom_id 取乱序结果
+python batch.py
 ```
 
 进阶示例需要较新 SDK——先 `pip install -U anthropic`（结构化输出/工具需要）。
