@@ -3,6 +3,7 @@
 #include "shared_state.h"
 #include "protocol.h"
 #include "wal.h"
+#include "prof.h"
 #include <nlohmann/json.hpp>
 #include <thread>
 
@@ -21,7 +22,8 @@ void dispatch_message(std::vector<zmq::message_t>& frames) {
     std::string identity(static_cast<char*>(frames.front().data()), frames.front().size());
     std::string payload(static_cast<char*>(frames.back().data()),  frames.back().size());
 
-    auto j = nlohmann::json::parse(payload, nullptr, false);
+    nlohmann::json j;
+    { ScopedProf _p(Prof::JsonParse); j = nlohmann::json::parse(payload, nullptr, false); }
     if (j.is_discarded()) return;
 
     std::string op = j.value("op", "");
@@ -121,13 +123,17 @@ void scheduler_thread() {
         g_state.active_tasks[task.task_id] = *worker_opt;
         g_state.tasks_assigned++;
 
-        nlohmann::json j = {
-            {"op", Op::RUN_TASK},
-            {"task_id", task.task_id},
-            {"manifest", task.manifest},
-            {"code", task.code}
-        };
-        std::string payload = j.dump();
+        std::string payload;
+        {
+            ScopedProf _p(Prof::JsonDump);
+            nlohmann::json j = {
+                {"op", Op::RUN_TASK},
+                {"task_id", task.task_id},
+                {"manifest", task.manifest},
+                {"code", task.code}
+            };
+            payload = j.dump();
+        }
         std::string worker_id = *worker_opt;
         wal_write(WalOp::ASSIGN, task.task_id.c_str(), payload.c_str(), worker_id.c_str());
 

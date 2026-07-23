@@ -42,6 +42,7 @@ add_executable(hub
     src/scheduler.cpp
     src/wal.cpp
     src/worker_pool.cpp
+    src/prof.cpp
 )
 link_common(hub)
 
@@ -50,6 +51,7 @@ add_executable(test_wal_replay
     tests/test_wal_replay.cpp
     src/wal.cpp
     src/worker_pool.cpp
+    src/prof.cpp
 )
 link_common(test_wal_replay)
 

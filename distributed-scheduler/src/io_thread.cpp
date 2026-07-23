@@ -1,9 +1,11 @@
 #include "io_thread.h"
 #include "shared_state.h"
 #include "protocol.h"
+#include "prof.h"
 #include <chrono>
 
 void send_to_io_thread(std::vector<zmq::message_t>&& frames) {
+    ScopedProf _p(Prof::ZmqEnqueue);
     std::lock_guard<std::mutex> lock(g_io_ctx.send_mutex);
     g_io_ctx.send_queue.push_back(std::move(frames));
 }

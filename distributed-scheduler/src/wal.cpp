@@ -1,5 +1,6 @@
 #include "wal.h"
 #include "shared_state.h"
+#include "prof.h"
 #include <nlohmann/json.hpp>
 #include <cstdio>
 #include <cstring>
@@ -31,6 +32,7 @@ void wal_set_path(const char* path) {
 }
 
 int wal_write(WalOp op, const char* task_id, const char* data, const char* worker_id) {
+    ScopedProf _p(Prof::WalWrite);
     if (!g_wal_file) {
         g_wal_file = fopen(g_wal_path.c_str(), "ab");   // 二进制追加
         if (!g_wal_file) return -1;

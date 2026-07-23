@@ -3,6 +3,7 @@
 #include "scheduler.h"
 #include "wal.h"
 #include "protocol.h"
+#include "prof.h"
 #include <csignal>
 #include <cstdio>
 #include <cstring>
@@ -39,6 +40,8 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--no-flush") == 0) {
             wal_set_flush(false);
+        } else if (std::strcmp(argv[i], "--profile") == 0) {
+            g_profile = true;
         } else if (std::strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
             endpoint = std::string("tcp://*:") + argv[++i];
         }
@@ -65,6 +68,7 @@ int main(int argc, char** argv) {
     g_state.running = false;
     watchdog_th.join();
 
+    prof_dump();
     wal_close();
     wal_truncate();
     printf("[HUB] Shutdown complete\n");

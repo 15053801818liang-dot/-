@@ -92,6 +92,30 @@ A/B（best-of-3，`--no-flush`）：
 应先量出瓶颈**——本例数据表明单锁尚未成为墙，下一个真实开销更可能是每任务的 JSON `dump`/`parse`
 与 WAL 写入，或单 IO 线程。
 
+### per-task 耗时打点（`--profile`，先量后优化）
+
+`hub --profile` 开启后，退出时打印每任务各段耗时（`json parse/dump`、`wal_write`、`zmq enqueue`）。
+默认关闭，生产路径零负担。2000 worker × 50000 任务实测：
+
+| section | flush OFF (ns/task) | flush ON (ns/task) |
+|---|---|---|
+| json_parse | 2010 | 2102 |
+| json_dump | 1891 | 1869 |
+| wal_write | 1341 | **3408** |
+| zmq_enqueue | 863* | 1158* |
+| **SUM/task** | **6104** | **8537** |
+| 吞吐 | 36.9k/s | 33.3k/s |
+
+\* zmq_enqueue 被 `clock_gettime` 开销放大约 2×。
+
+结论：
+1. **JSON parse+dump ≈ 3.9μs/task = 调度线程 CPU 的 64%**（flush-off）。二进制序列化可削这块。
+2. **WAL `fflush` 是被抓到的吞吐杀手**：flush ON 使 `wal_write` 1341→3408 ns/task，吞吐 −10%。
+   元凶是 `wal_write` 在 **`g_state.mutex` 临界区内**做 fflush syscall，把 DONE 流水线串行化。
+   → 下一步高确定性优化：把 flush 挪出全局锁 / 批量刷盘（注意崩溃丢失窗口的权衡）。
+3. SUM/task 仅 6.1μs，而 wall ≈ 27μs/task —— 大量 wall 时间在**未打点的单 IO 线程 poll/transport**
+   与 worker 往返上。选项「IO 线程拆分」打的是这块，需单独 profile io_thread 才能定论。
+
 ## 线协议
 
 DEALER(worker/client) 发送 `[空分隔帧, JSON]`；ROUTER 自动前置 identity。
