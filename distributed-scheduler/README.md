@@ -70,6 +70,28 @@ cmake --build build -j
 - **FD 耗尽下优雅降级**：加固后，撞上限的 worker 线程与 Hub 的 IO 线程捕获 `EMFILE/ENFILE`
   退出/继续，而不是 `terminate` 崩溃（加固前两端都会 abort，见修复项 17）。
 
+### 调度器优化：空闲 worker O(1) 索引（先量后优化）
+
+原实现 `has_idle()` / `find_and_mark_idle()` 是对 worker map 的 O(n) 线性扫描。
+先加计数器实测，再决定是否优化：
+
+- 2000 worker × 50000 任务下，扫描累计 **49.4M** 次迭代。虽然短路（命中第一个空闲即返回），
+  但 `has_idle()` 在 CV 谓词里每次唤醒/复查都调用，saturation 突发时会扫得很深。
+- 引入 `unordered_set<identity> idle_ids_`（不变量：`id ∈ idle_ids_ ⟺ 存在且空闲`），
+  `has_idle()`→`!empty()`、`find_and_mark_idle()`→取集合首元素，均降为 **O(1)**。
+
+A/B（best-of-3，`--no-flush`）：
+
+| workers | 优化前 O(n) | 优化后 O(1) | 扫描迭代 |
+|---|---|---|---|
+| 500  | 45.3k tasks/s | **51.9k** | 22.4M → **0** |
+| 2000 | 38.8k tasks/s | **48.0k** | 49.4M → **0** |
+
+结论：2000 worker 吞吐 **+24%**，且吞吐随 worker 数下降的曲线**基本被抹平**（2000w 追平 500w）。
+即"吞吐随规模下降"主要就是这个 O(n) 扫描，而非单锁本身。**这也说明在做高风险的拆锁之前，
+应先量出瓶颈**——本例数据表明单锁尚未成为墙，下一个真实开销更可能是每任务的 JSON `dump`/`parse`
+与 WAL 写入，或单 IO 线程。
+
 ## 线协议
 
 DEALER(worker/client) 发送 `[空分隔帧, JSON]`；ROUTER 自动前置 identity。
@@ -125,7 +147,9 @@ DEALER(worker/client) 发送 `[空分隔帧, JSON]`；ROUTER 自动前置 identi
 
 ## 已知限制 / 后续方向
 
+- ✅ 空闲 worker O(1) 索引（已做，见上，2000w +24%）。
 - 单 IO 线程 `poll`：极高连接数下为瓶颈，可拆 recv/send 双线程。
-- 单全局锁：可按 worker_pool / queue / wal 拆分细化并发。
+- 单全局锁：可按 worker_pool / queue / wal 拆分——但实测单锁尚非瓶颈，
+  拆锁前应先量（JSON/WAL 每任务开销可能更值得先优化）。
 - `bench.sh` 崩溃恢复阶段的 drain 以「800ms 无新完成」为收敛条件，尾部可能残留极少量
   已派发未确认的任务（仍安全留存于 pending/WAL，不丢失）。

@@ -2,7 +2,9 @@
 #include <string>
 #include <vector>
 #include <chrono>
+#include <cstdint>
 #include <unordered_map>
+#include <unordered_set>
 #include <optional>
 #include "worker_node.h"
 
@@ -23,4 +25,7 @@ public:
 
 private:
     std::unordered_map<std::string, WorkerNode> pool_;
+    // 不变量: id ∈ idle_ids_  ⟺  pool_[id] 存在且 busy==false。
+    // 使 has_idle()/find_and_mark_idle() 由 O(n) 降为 O(1)。
+    std::unordered_set<std::string> idle_ids_;
 };
