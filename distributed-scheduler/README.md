@@ -116,6 +116,27 @@ A/B（best-of-3，`--no-flush`）：
 3. SUM/task 仅 6.1μs，而 wall ≈ 27μs/task —— 大量 wall 时间在**未打点的单 IO 线程 poll/transport**
    与 worker 往返上。选项「IO 线程拆分」打的是这块，需单独 profile io_thread 才能定论。
 
+### IO 线程 profile + 瓶颈定位（把「拆 IO 线程」证伪了）
+
+对 io_thread 加 `io_poll/io_send/io_recv` 打点，并测 poll 超时敏感度与 per-thread CPU（2000w）：
+
+- **IO 线程只有 22% 忙**（`(send+recv)/(poll+send+recv)`），78% 在 poll 等待。
+- **poll 超时越小吞吐越低**（best-of-3）：10ms=47.6k → 5ms=45.7k → 1ms=41.7k → 0ms(busy-spin)=37.4k。
+  降低 poll 反而更差——说明 send **并没有**被 poll 卡死；busy-spin 抢 CPU 且加剧 `g_state.mutex`
+  竞争（recv 入队要拿这把锁），把调度线程拖慢了。
+- **没有任何资源饱和**：稳态只用 **1.6 / 4 核**；per-thread：`scheduler 0.82` / `io_thread 0.29` /
+  `ZMQbg/IO/0 0.16` 核——**最忙的线程也就 0.82 核，没打满**。
+
+结论（重要，且**修正了我自己之前偏向拆 IO 的判断**）：
+
+> 系统是 **latency/handoff-bound**，不是 CPU-bound 也不是单线程饱和。核有富余、无线程打满，
+> 吞吐却卡在 ~35–47k/s（同机负载生成器 + 2000 条本地 TCP 连接的测量混淆占主导，run 间方差也大）。
+> **因此 IO 线程拆分、WAL 写线程、JSON 二进制序列化在当前测试台上都不成立**——它们都不打向饱和资源，
+> 而 poll-ms 扫描已实测「加 IO 活动反而更差」。要真做吞吐优化，得先移除混淆（负载生成器搬到别的机器），
+> 否则就是过早优化。当前更该做的是**生产健壮性（fd 背压）**，而不是追这台机器上并不受资源限制的吞吐。
+
+诊断开关：`hub --profile`（打点）、`hub --poll-ms N`（IO poll 超时，默认 10）。
+
 ## 线协议
 
 DEALER(worker/client) 发送 `[空分隔帧, JSON]`；ROUTER 自动前置 identity。

@@ -5,7 +5,8 @@
 
 // 轻量 per-op 打点。默认关闭（g_profile=false），仅 --profile 时开启，
 // 生产路径零负担。用于"先量后优化"：量出每任务各段的真实耗时占比。
-enum class Prof { JsonParse, JsonDump, WalWrite, ZmqEnqueue, COUNT };
+enum class Prof { JsonParse, JsonDump, WalWrite, ZmqEnqueue,
+                  IoPoll, IoSend, IoRecv, COUNT };
 
 extern bool g_profile;
 void prof_add(Prof c, uint64_t ns);

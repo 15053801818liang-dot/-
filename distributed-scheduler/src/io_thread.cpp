@@ -16,6 +16,7 @@ void io_thread_main() {
     while (g_io_ctx.running.load()) {
         // 1. 非阻塞发送（优先保证下行延迟）
         {
+            ScopedProf _ps(Prof::IoSend);
             std::lock_guard<std::mutex> lock(g_io_ctx.send_mutex);
             while (!g_io_ctx.send_queue.empty()) {
                 auto& msg = g_io_ctx.send_queue.front();
@@ -31,7 +32,8 @@ void io_thread_main() {
 
         // 2. Poll（10ms 节拍，平衡延迟与 CPU）
         try {
-            zmq::poll(items, 1, std::chrono::milliseconds(POLL_TIMEOUT_MS));
+            ScopedProf _pp(Prof::IoPoll);
+            zmq::poll(items, 1, std::chrono::milliseconds(g_poll_ms));
         } catch (const zmq::error_t& e) {
             // 客户端连接洪泛导致 FD 耗尽时，libzmq 内部丢弃新连接，
             // 已建立连接仍可服务；不因瞬时错误崩溃整个 Hub。
@@ -43,6 +45,7 @@ void io_thread_main() {
         if (!(items[0].revents & ZMQ_POLLIN)) continue;
 
         // 3. 非阻塞收取所有可读消息（原样入队，不解析）
+        ScopedProf _pr(Prof::IoRecv);
         while (true) {
             zmq::message_t part;
             auto res = g_io_ctx.router.recv(part, zmq::recv_flags::dontwait);

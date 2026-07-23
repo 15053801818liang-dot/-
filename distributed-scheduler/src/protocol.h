@@ -6,6 +6,7 @@
 // 分隔帧存在与否都能正确解析。
 constexpr char FRAME_DELIMITER[] = "";
 constexpr int POLL_TIMEOUT_MS = 10;
+extern int g_poll_ms;   // IO 线程 poll 超时(ms)，默认 10，--poll-ms 可调（用于诊断 send/poll 耦合）
 constexpr int ZMQ_MAX_SOCKETS_CAP = 1023;
 
 // 操作码定义（对齐 worker 端）

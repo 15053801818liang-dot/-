@@ -7,12 +7,14 @@
 #include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <string>
 #include <thread>
 #include <unistd.h>
 
 SharedState g_state;
 IoContext   g_io_ctx;
+int         g_poll_ms = POLL_TIMEOUT_MS;
 
 // 异步信号安全的 metrics 输出（避免 iostream / malloc）
 static void dump_metrics() {
@@ -42,6 +44,8 @@ int main(int argc, char** argv) {
             wal_set_flush(false);
         } else if (std::strcmp(argv[i], "--profile") == 0) {
             g_profile = true;
+        } else if (std::strcmp(argv[i], "--poll-ms") == 0 && i + 1 < argc) {
+            g_poll_ms = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
             endpoint = std::string("tcp://*:") + argv[++i];
         }
