@@ -36,6 +36,11 @@ python chat.py --chat
 ## 进阶示例
 
 ```bash
+# 随机笑话生成器（外部 JokeAPI，支持过滤与安全模式）
+python3 joke_generator.py
+python3 joke_generator.py --category programming --type twopart --safe-mode
+python3 joke_generator.py --contains python --blacklist-flags nsfw,religious
+
 # 结构化输出：抽取成校验过的 JSON 对象（Pydantic + output_format）
 python structured_output.py
 
@@ -51,6 +56,12 @@ python batch.py
 
 进阶示例需要较新 SDK——先 `pip install -U anthropic`（结构化输出/工具需要）。
 `tools.py` 的计算器用 AST 求值而非 `eval`，注入表达式会被安全拒绝。
+
+`joke_generator.py` 使用 `https://v2.jokeapi.dev`，具备：
+- 按需获取随机笑话（每次调用实时请求）
+- 友好展示（单句 / 问答两段）
+- 错误处理（HTTP 错误、网络错误、超时、无效 JSON、API 业务错误）
+- 过滤选项（类别、类型、关键词、blacklist flags、安全模式、语言）
 
 ## 模型 ID
 
