@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 )
 
 // Store JSON 持久化接口。
@@ -18,6 +19,8 @@ type JSONStore struct {
 	Dir string
 }
 
+var validInstanceID = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
 func NewJSONStore(dir string) (*JSONStore, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create store dir: %w", err)
@@ -25,20 +28,20 @@ func NewJSONStore(dir string) (*JSONStore, error) {
 	return &JSONStore{Dir: dir}, nil
 }
 
-func (st *JSONStore) path(id string) string {
-	return filepath.Join(st.Dir, id+".json")
-}
-
 func (st *JSONStore) Save(inst *DAGInstance) error {
 	b, err := json.MarshalIndent(inst, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := st.path(inst.ID) + ".tmp"
+	if !validInstanceID.MatchString(inst.ID) {
+		return fmt.Errorf("invalid instance id %q", inst.ID)
+	}
+	path := filepath.Join(st.Dir, inst.ID+".json")
+	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, st.path(inst.ID))
+	return os.Rename(tmp, path)
 }
 
 func (st *JSONStore) LoadAll() ([]*DAGInstance, error) {
