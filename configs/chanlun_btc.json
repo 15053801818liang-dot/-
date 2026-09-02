@@ -1,0 +1,10 @@
+{
+  "strategy": "chanlun_ajiao_new",
+  "stroke_standard": "new",
+  "symbol": "BTCUSDT",
+  "interval": "5m",
+  "initial_capital": 1000000,
+  "commission": 0.0005,
+  "slippage": 0.0001,
+  "description": "阿娇缠论新笔 — 缠论买卖点回测"
+}

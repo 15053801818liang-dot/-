@@ -1,6 +1,28 @@
 # 变更日志
 
-## [0.11.0] - 2026-07-02 "知行"
+## [0.12.0] - 2026-07-03 "圆满"
+### 新增 - 圆满补全
+- **规则持久化**: 用户学习的规则通过 `save_rules()` / `load_rules_from_file()` 自动保存和加载，路径 `rules/user_learned.super`。启动时自动加载，`学习规则`/`强制添加规则` 后自动保存
+- **强制添加规则**: `perceive()` 新增 `force_rule` 处理器，对应命令 `强制添加规则 <规则>`，跳过孤儿/循环警告
+- **全部解查询**: `KB.query_all_solutions()` 方法 + 命令 `查询全部 P(args)` 返回所有绑定解
+- **规则删除**: `KB.delete_rules(predicate_name)` 方法 + 命令 `删除规则 <谓词>`，按谓词名批量删除并同步更新索引
+- **推理轨迹开关**: `_show_trace` 属性 + 命令 `显示轨迹 on/off`，开启后查询结果附带规则/事实详情
+- **列出事实/规则**: 命令 `列出事实` / `列出规则`，查看知识库内容（前30条）
+- **保存/加载规则**: 命令 `保存规则` / `加载规则 [文件]`，手动触发规则文件I/O
+- **身份响应**: 命令 `你是谁` / `who are you`，显示盘古完整身份信息
+- **MCP令牌持久化**: 令牌注册表跨会话保存到 `memory/MCP_TOKENS.json`，新 Agent 实例自动加载
+- **帮助完善**: `_print_help()` 方法，全命令分类参考表，命令 `帮助` / `help`
+- **解析器修复**: `parse_rule_from_string()` 使用括号感知的 `_split_args()` 替代简单 `,` 分割，正确处理 `parent(_X, b)` 等带嵌套逗号的体条件
+
+### 变更
+- 版本标识升级为 `v0.12.0 "圆满"`
+- NLMatcher 新增模板：`force_rule`/`delete_rule`/`query_all`/`list_facts`/`list_rules`/`save_rules`/`load_rules`/`toggle_trace`/`who_are_you`/`show_help`
+- `强制添加规则` 模板移至 `学习规则` 之前，防止子串匹配遮蔽
+- `PersistentMemory` 身份默认名改为"盘古"（中文）
+- `MCPBridge` 使用 `agent.memory.memory_dir` 而非全局 `MEMORY_DIR` 保存令牌文件
+- 新增测试文件 `test_pangu_v012.py`（57个单元测试）
+
+## [0.11.0] - 2026-07-02 "索引"
 ### 新增 - OpenClaw 配置体系对齐
 - **ConfigLoader** — 零依赖 Markdown 配置文件解析器
   - `SOUL.md`：身份名称、版本、主权声明、价值观与原则
@@ -13,7 +35,7 @@
 ### 新增 - ds4 本地推理引擎接口对齐
 - **LocalInferenceEngine** — 可编程 Python API，与 MCP 协议桥接互补
   - `infer(goal, method)` — 单目标推理，支持 `method="auto"`（仲裁器自动选择）
-  - `infer_all(goal)` — 16 种方法并行推理，返回结果对比
+  - `infer_all(goal)` — 多方法推理结果对比
   - `learn(rule, force)` — 学习规则/事实（事实直接进 KB，无孤儿检查）
   - `remember(fact)` — 持久化事实到 4D 记忆并加入 KB
   - `recall(query)` — 从持久记忆召回相关条目
@@ -24,17 +46,29 @@
   - 内置线程锁，线程安全
   - `stop()` 优雅关闭后台梦境引擎
 
+### 新增 - 性能优化
+- **谓词索引 (`predicate_index`)**：规则按 head 谓词名建立 dict 索引，回溯时 O(1) 定位候选规则
+- **事实索引 (`fact_index`)**：事实按谓词名建立 dict 索引，回溯时 O(1) 定位候选事实
+- **一致性检查缓存**：`KB.get_consistency_report()` 首次计算后缓存 `HealthReport`，KB 变更时自动失效（脏标记），二次调用 O(1) 返回
+- **MCP 调用者管理**：补全 `generate_token` / `revoke_token` / `list_callers`
+
 ### 新增 - 配置模板文件
 - `SOUL.md` — 身份与价值观默认模板
 - `AGENTS.md` — 模块配置默认模板
 - `USER.md` — 用户偏好默认模板
 
+### 修复
+- **Arbiter 重复 `select_methods`**：删除冗余定义，恢复历史学习版本
+- **Arbiter `sort_key` 中 `_goal_type` 未设置**：在排序前提前计算 `_goal_type`，恢复反馈驱动排序
+- **`perceive()` 中重复 `restore_superseded` 处理器**：删除永远不可达的重复分支
+
 ### 测试
-- 新增 `test_pangu_v0.11.0.py`（48 个测试，100% 通过）
+- 新增 `test_pangu_v0.11.0.py`（48 个测试）
   - ConfigLoader 全路径覆盖（默认值、文件加载、类型解析、write_defaults）
   - LocalInferenceEngine 全方法覆盖（推理、学习、记忆、搜索、健康、梦境）
   - SuperBrainAgent 配置集成测试
   - 版本标识验证
+- 新增 `test_pangu_v011.py`（38 个单元测试，覆盖索引、缓存、历史学习修复、MCP 调用者管理）
 
 ## [0.10.0] - 2026-06-13 "超我"
 ### 新增 - 16种认知架构

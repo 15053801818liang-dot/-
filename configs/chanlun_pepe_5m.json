@@ -1,0 +1,10 @@
+{
+  "strategy": "chanlun_pr_czsc",
+  "stroke_standard": "czsc_rs_czsc",
+  "symbol": "PEPEUSDT",
+  "interval": "5m",
+  "initial_capital": 1000000,
+  "commission": 0.001,
+  "slippage": 0.0,
+  "description": "PR 库 czsc 因果笔 — PEPEUSDT 5m 全量验证"
+}

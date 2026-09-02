@@ -1,0 +1,71 @@
+# AGENTS.md
+
+## Cursor Cloud specific instructions
+
+This repo contains **three independent products**:
+
+1. `scheduler/` — **distributed_scheduler**: a lock-free shared-memory MPMC task
+   queue + etcd-based leader election. Deps: `etcd3`, `prometheus-client`,
+   `psutil` (see `requirements.txt`). Tests in `tests/`.
+2. `盘古/` — **Pangu**: a zero-dependency, pure-stdlib symbolic reasoning agent.
+   No third-party packages required. This is what the top-level `README.md`
+   documents.
+3. `chanlun/` — **缠论 (Chanlun)**: a zero-dependency, pure-stdlib technical
+   analysis kernel (K线包含处理 → 分型 → 笔 → 中枢 → MACD背驰 → 买卖点).
+   See `chanlun/README.md`.
+4. `cmd/go-scheduler/` + `pkg/scheduler/` — **Go DAG 调度器** driving Python
+   tasks in `tasks/` via JSON stdin/stdout (`JSONExecutor`). End-to-end demo:
+   `python3 scripts/generate_btc_csv.py && WORKSPACE_DIR=workspace go run ./cmd/go-scheduler/`
+   Report: `workspace/reports/chanlun_btc_demo.md`.
+
+### Environment notes
+- Python 3.12; there is no `python` alias (use `python3`), and `python3-venv`
+  is not installable here, so deps are installed to `~/.local` via
+  `pip install --break-system-packages` (handled by the update script).
+- `~/.local/bin` is not on `PATH` by default; run tools as `python3 -m pytest`.
+- **protobuf must be `<3.21`** — the update script pins it because `etcd3 0.12.0`
+  ships pre-3.19 generated code that fails to import against protobuf 7.x.
+- `scheduler/atomic.py` needs `libatomic.so.1` (already present in the base image).
+
+### Running / testing
+- distributed_scheduler tests: `python3 -m pytest tests/test_distributed_scheduler.py`
+  (uses a fake lease manager — no etcd needed).
+- chanlun tests: `python3 chanlun/test_chanlun.py` (or
+  `python3 -m pytest chanlun/test_chanlun.py`); demo: `python3 -m chanlun.demo`.
+  Zero deps — runs on stdlib alone.
+- Go chanlun backtest pipeline: `go run ./cmd/go-scheduler/` (requires Go 1.22+,
+  `python3` on PATH). Generates artifacts under `workspace/artifacts/` and
+  `workspace/reports/`. Uses `data/BTCUSDT_5m.csv` (regenerate via
+  `python3 scripts/generate_btc_csv.py`). Large stress data:
+  `python3 scripts/generate_btc_large.py -n 100000` then
+  `SOURCE_PATH=data/BTCUSDT_5m_large.csv go run ./cmd/go-scheduler/`.
+  Optional parquet: `pip install -r requirements-backtest.txt`.
+  Import external CSV: `python3 scripts/import_market_csv.py /path/to/your.csv`.
+- Pangu tests are run **directly**, not via pytest (filenames contain dots).
+  See `盘古/.github/workflows/test.yml`:
+  `cd 盘古 && python3 test_pangu_v0.10.0.py && python3 test_comprehensive.py && python3 test_pangu_v011.py`.
+- Run Pangu (interactive REPL): `cd 盘古 && python3 pangu_v0.11.0.py`. Builtin
+  facts use English predicates, e.g. query `grandparent(a, _Who)`; variables
+  start with `_` or `?`.
+- Run the scheduler single-machine (no etcd): use `DistributedSchedulerV3` /
+  `SchedulerClient` `push`/`steal` directly. The CLI
+  (`python3 -m scheduler.cli --node-id ... --lease-key ...`) requires a running
+  **etcd at localhost:2379**, which is NOT installed in this environment; only
+  the distributed leader-election path needs it.
+- `tests/test_multiprocess.py` is a **stress script, not part of CI**. It prints
+  `FAIL` by design under heavy cross-process contention because its producers do
+  not retry when the queue is momentarily full (no data loss/duplication:
+  `unique == consumed`). Do not treat this as a broken environment.
+
+### Common agent stuck points (do not loop on these)
+- **Do not run** `python3 -m pytest 盘古/test_pangu_v0.10.0.py` — the dotted
+  filename breaks pytest collection (`ModuleNotFoundError: test_pangu_v0`). Run
+  it as `python3 test_pangu_v0.10.0.py` instead.
+- **Do not wait on etcd** in this environment. `scheduler.cli` and
+  `EtcdLeaseManager.start()` retry forever if etcd is unreachable.
+- **v0.12.0 was reverted** on master (PR #5). Do not re-implement from scratch;
+  restore from commit `b5f30ac` if the user explicitly asks for v0.12.
+- Pangu MCP mode (`python3 pangu_v0.11.0.py --mcp`) blocks on `stdin.readline()`;
+  that is expected, not a hang.
+- Socratic reasoning sets `needs_input=True` when facts are missing; that is
+  waiting for user input, not an infinite loop.

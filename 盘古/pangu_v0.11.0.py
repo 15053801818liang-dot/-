@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-盘古 v0.11.0 "知行"
+盘古 v0.11.0 "索引"
 ================================================================
 零依赖 · 完全本地 · 主权可控
 
@@ -14,6 +14,14 @@
   NEXO Brain      - MCP协议桥接
   ds4             - 本地推理引擎接口 (LocalInferenceEngine)
   OpenClaw        - AGENTS.md/SOUL.md/USER.md 配置体系 (ConfigLoader)
+
+v0.11.0 新增：
+  - KB谓词索引 (predicate_index): O(1)规则查找
+  - KB事实索引 (fact_index): O(1)事实查找
+  - 一致性检查缓存 (_consistency_cache + _cache_dirty)
+  - 修复Arbiter重复select_methods（激活历史学习版本）
+  - 修复perceive()中重复restore_superseded处理器
+  - MCPBridge补全 generate_token/revoke_token/list_callers
 ================================================================
 """
 
@@ -145,9 +153,19 @@ class KB:
         self.diagnostic_mode = False
         self.last_failure = None
         self.causal_chains: List[Dict] = []  # 因果链
+        self.predicate_index: Dict[str, List[Rule]] = defaultdict(list)
+        self.fact_index: Dict[str, List[Term]] = defaultdict(list)
+        self._consistency_cache: Optional['HealthReport'] = None
+        self._cache_dirty: bool = True
+
+    def _invalidate_cache(self):
+        self._cache_dirty = True
+        self._consistency_cache = None
 
     def add_fact(self, fact: Term):
         self.facts.append(fact)
+        self.fact_index[fact.name].append(fact)
+        self._invalidate_cache()
 
     def add_rule(self, rule: Rule, force: bool = False):
         temp_kb = self._copy()
@@ -161,10 +179,21 @@ class KB:
         if (report.orphans or report.cycles) and not force:
             raise ValueError(f"Orphans/Cycles detected. Use force=true to override.")
         self.rules.append(rule)
+        self.predicate_index[rule.head.name].append(rule)
         if force and (report.orphans or report.cycles):
             rule.reliable = False
             rule.warning = "forced rule (orphan/cycle)"
+        self._invalidate_cache()
         self.detect_recursive()
+
+    def get_consistency_report(self) -> 'HealthReport':
+        """返回一致性报告，命中缓存则直接返回（O(1)）。"""
+        if not self._cache_dirty and self._consistency_cache is not None:
+            return self._consistency_cache
+        checker = ConsistencyChecker(self)
+        self._consistency_cache = checker.check()
+        self._cache_dirty = False
+        return self._consistency_cache
 
     def detect_recursive(self):
         deps = defaultdict(set)
@@ -186,7 +215,14 @@ class KB:
         self.recursive_predicates = rec_set
 
     def _copy(self):
-        kb = KB(); kb.facts = self.facts.copy(); kb.rules = self.rules.copy(); return kb
+        kb = KB()
+        kb.facts = self.facts.copy()
+        kb.rules = self.rules.copy()
+        for f in kb.facts:
+            kb.fact_index[f.name].append(f)
+        for r in kb.rules:
+            kb.predicate_index[r.head.name].append(r)
+        return kb
 
     def query_best(self, goal, max_depth=MAX_DEPTH, max_solutions=MAX_SOLUTIONS, dynamic=None):
         sol, _ = self.query_best_with_trace(goal, max_depth, max_solutions, dynamic)
@@ -214,13 +250,17 @@ class KB:
                 solutions.append({'binding': ns, 'score': 1.0, 'trace': InferenceTrace(InferenceStep(None, None, goal, ns.copy()), ns)})
             except UnificationError: pass
             return
-        for fact in facts:
+        candidate_facts = self.fact_index.get(goal.name, [])
+        if facts is not self.facts:
+            extra = [f for f in facts if f not in self.facts and f.name == goal.name]
+            candidate_facts = candidate_facts + extra
+        for fact in candidate_facts:
             try:
                 ns = unify(goal, fact, subst.copy())
                 score = 1.0 if not chain else specificity_score(chain[-1])
                 solutions.append({'binding': ns, 'score': score, 'trace': InferenceTrace(InferenceStep(None, fact, goal, ns.copy()), ns)})
             except UnificationError: continue
-        for rule in self.rules:
+        for rule in self.predicate_index.get(goal.name, []):
             try:
                 ns = unify(goal, rule.head, subst.copy())
                 body_results = self._solve_body(rule.body, ns, depth, max_depth, max_solutions, facts)
@@ -496,9 +536,8 @@ class CognitiveEngine:
         if not binding:
             return None, None, "\n".join(self.think_log)
         self.think_log.append(f"  Initial: {binding}")
-        # 验证一致性
-        checker = ConsistencyChecker(self.kb)
-        report = checker.check()
+        # 验证一致性（v0.11.0: 使用缓存）
+        report = self.kb.get_consistency_report()
         if not report.orphans and not report.cycles:
             self.think_log.append(f"  Refined: OK")
             return binding, trace, "\n".join(self.think_log)
@@ -755,6 +794,7 @@ class Arbiter:
         """根据查询分析选择候选推理方法，按优先级排序。
         降权方法（成功率<30%）保持在候选集中，但优先级调至最后。"""
         info = self.analyze_goal(goal)
+        info['_goal_type'] = self._classify_goal_type(goal)
         candidates = []
 
         # 基础候选（按查询类型分类）
@@ -775,7 +815,7 @@ class Arbiter:
 
         # 根据历史表现排序：高优先在前，低优先在后
         def sort_key(m: ReasoningMethod) -> float:
-            key = f"({m.value},{info.get('_goal_type','unknown')})"
+            key = f"({m.value},{info['_goal_type']})"
             return self.method_scores.get(key, 0.5)
 
         # 分割：正常方法和降权方法
@@ -787,7 +827,6 @@ class Arbiter:
         candidates = normal + demoted
 
         self._last_analysis = info
-        self._last_analysis['_goal_type'] = self._classify_goal_type(goal)
         return candidates
 
     def _classify_goal_type(self, goal: Term) -> str:
@@ -829,66 +868,6 @@ class Arbiter:
             'is_inductive': name in ('pattern', 'common', 'similar', 'analogy', 'alike'),
             'is_deep': var_count >= 2 or len(goal.args) > 3,
         }
-
-    def select_methods(self, goal: Term, context: Optional[Dict] = None) -> List[ReasoningMethod]:
-        """根据查询分析选择候选推理方法，按优先级排序"""
-        info = self.analyze_goal(goal)
-        candidates = []
-
-        # 验证类查询
-        if info['is_verification']:
-            candidates = [
-                ReasoningMethod.CONTRADICT,
-                ReasoningMethod.SELF_REFINE,
-                ReasoningMethod.COT,
-            ]
-        # 反事实类查询
-        elif info['is_counterfactual']:
-            candidates = [
-                ReasoningMethod.COUNTERFACTUAL,
-                ReasoningMethod.SOCRATIC,
-                ReasoningMethod.ABDUCTIVE,
-            ]
-        # 因果类查询
-        elif info['is_causal']:
-            candidates = [
-                ReasoningMethod.ABDUCTIVE,
-                ReasoningMethod.COUNTERFACTUAL,
-                ReasoningMethod.MCTS,
-                ReasoningMethod.COT,
-            ]
-        # 归纳类查询
-        elif info['is_inductive']:
-            candidates = [
-                ReasoningMethod.INDUCTIVE,
-                ReasoningMethod.ANALOGY,
-                ReasoningMethod.COT,
-            ]
-        # 多变量复杂查询
-        elif info['is_deep']:
-            candidates = [
-                ReasoningMethod.DECOMP,
-                ReasoningMethod.TOT,
-                ReasoningMethod.ENSEMBLE,
-                ReasoningMethod.COT,
-            ]
-        # 有直接事实/规则的查询
-        elif info['has_facts'] or info['has_rules']:
-            candidates = [
-                ReasoningMethod.COT,
-                ReasoningMethod.SELF_REFINE,
-                ReasoningMethod.DIALECTIC,
-            ]
-        # 默认
-        else:
-            candidates = [
-                ReasoningMethod.COT,
-                ReasoningMethod.ENSEMBLE,
-            ]
-
-        # 保存分析结果供调用方使用
-        self._last_analysis = info
-        return candidates
 
     def reason(self, goal: Term, engine: CognitiveEngine, **kwargs) -> Tuple[Optional[Dict], Optional[InferenceTrace], str]:
         """仲裁推理入口：选择方法 → 执行 → 融合结果"""
@@ -1119,9 +1098,8 @@ class DreamEngine:
             if entry.get('role') == 'user':
                 self.dream_log.append(f"  Replay: {entry['content'][:80]}")
 
-        # 二级·关联：检查一致性
-        checker = ConsistencyChecker(self.kb)
-        report = checker.check()
+        # 二级·关联：检查一致性（v0.11.0: 使用缓存）
+        report = self.kb.get_consistency_report()
         if report.orphans or report.cycles:
             self.dream_log.append(f"  Issues: {len(report.orphans)} orphans, {len(report.cycles)} cycles")
             self.memory.remember({"type": "dream_insight", "content":
@@ -1511,9 +1489,8 @@ class RealitySupervisor:
                     result["hallucination_risk"] += 0.2
                     result["warnings"].append(f"Variable {var}={val} not grounded in facts")
 
-        # 2. 逻辑一致性检查
-        checker = ConsistencyChecker(self.kb)
-        report = checker.check()
+        # 2. 逻辑一致性检查（v0.11.0: 使用缓存）
+        report = self.kb.get_consistency_report()
         if report.cycles:
             result["hallucination_risk"] += 0.3
             result["warnings"].append(f"Cycle detected: {report.cycles}")
@@ -1657,6 +1634,40 @@ class MCPBridge:
     def _handle_dream(self, params):
         return {"dream": self.agent.dream.dream_now()}
 
+    def generate_token(self, caller_name: str, level: str) -> str:
+        """生成调用者令牌并注册到白名单"""
+        token = hashlib.sha256(f"{caller_name}:{level}:{time.time()}".encode()).hexdigest()[:16]
+        if not hasattr(self, '_token_registry'):
+            self._token_registry: Dict[str, Dict] = {}
+        self._token_registry[token] = {"name": caller_name, "level": level, "created": time.time()}
+        if caller_name not in self.trusted_callers:
+            self.trusted_callers.append(caller_name)
+        return token
+
+    def revoke_token(self, caller_name: str) -> bool:
+        """撤销调用者令牌并从白名单移除"""
+        if not hasattr(self, '_token_registry'):
+            return False
+        keys_to_remove = [k for k, v in self._token_registry.items() if v.get("name") == caller_name]
+        if not keys_to_remove:
+            return False
+        for k in keys_to_remove:
+            del self._token_registry[k]
+        if caller_name in self.trusted_callers:
+            self.trusted_callers.remove(caller_name)
+        return True
+
+    def list_callers(self) -> List[Dict]:
+        """列出所有已注册调用者"""
+        if not hasattr(self, '_token_registry'):
+            return []
+        seen = {}
+        for v in self._token_registry.values():
+            name = v.get("name")
+            if name not in seen:
+                seen[name] = {"name": name, "level": v.get("level")}
+        return list(seen.values())
+
 # ============================================================
 # 11. 自然语言匹配器（升级：SKILL模式匹配）
 # ============================================================
@@ -1730,7 +1741,7 @@ class BoneGuard:
         return 0
 
     def assert_identity(self):
-        print(f"[{self.identity}] 主权不可侵犯 | v0.11.0 知行")
+        print(f"[{self.identity}] 主权不可侵犯 | v0.11.0 索引")
 
     def get_status(self) -> Dict:
         return {"identity": self.identity, "level": self.level, "allowed": self.allowed_identities}
@@ -2144,8 +2155,7 @@ class LocalInferenceEngine:
                "trust_score": float}``
         """
         with self._lock:
-            checker = ConsistencyChecker(self._agent.kb)
-            report = checker.check()
+            report = self._agent.kb.get_consistency_report()
             return {
                 "rules": report.total_rules,
                 "facts": report.total_facts,
@@ -2370,8 +2380,7 @@ class SuperBrainAgent:
                 return []
 
             elif fact.name == "check_consistency":
-                checker = ConsistencyChecker(self.kb)
-                report = checker.check()
+                report = self.kb.get_consistency_report()
                 self._print_health(report)
                 return []
 
@@ -2528,17 +2537,6 @@ class SuperBrainAgent:
                     else:
                         print("[梦境] 无被替代的规则")
                 return []
-            elif fact.name == "restore_superseded":
-                name = self.dream.get_superseded_rules()
-                if name:
-                    print("[梦境] 被替代的规则:")
-                    for r in name:
-                        print(f"  - {r.head.name} (superseded)")
-                    print("  输入 restore_rule <name> 恢复")
-                else:
-                    print("[梦境] 无被替代的规则")
-                return []
-
             elif fact.name == "mcp_list":
                 callers = self.mcp.list_callers()
                 if callers:
@@ -2701,7 +2699,7 @@ if __name__ == "__main__":
             except (EOFError, KeyboardInterrupt):
                 break
     else:
-        print("盘古 v0.11.0 [知行] 已启动 | 16种认知架构 | 4D记忆 | 梦境引擎 | 知识图谱 | MCP桥接 | OpenClaw配置 | ds4接口")
+        print("盘古 v0.11.0 [索引] 已启动 | 16种认知架构 | 4D记忆 | 梦境引擎 | 知识图谱 | MCP桥接 | OpenClaw配置 | ds4接口")
         print("输入 exit 退出。输入 help 查看命令。")
         while True:
             try:
