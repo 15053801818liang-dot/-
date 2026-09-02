@@ -239,6 +239,18 @@ func TestRestoreFromStore(t *testing.T) {
 	}
 }
 
+func TestJSONStoreRejectsPathTraversalID(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewJSONStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst := &DAGInstance{ID: "../escape"}
+	if err := store.Save(inst); err == nil {
+		t.Fatal("expected invalid instance id error")
+	}
+}
+
 func TestStepRunAllLinearDAG(t *testing.T) {
 	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
 	sched := NewDAGSchedulerV0(

@@ -12,8 +12,8 @@
   GBrain          - 知识图谱 + 混合搜索
   Evo Brain       - 现实监督器
   NEXO Brain      - MCP协议桥接
-  ds4             - 本地推理引擎接口
-  OpenClaw        - AGENTS.md/SOUL.md/USER.md 配置体系
+  ds4             - 本地推理引擎接口 (LocalInferenceEngine)
+  OpenClaw        - AGENTS.md/SOUL.md/USER.md 配置体系 (ConfigLoader)
 
 v0.11.0 新增：
   - KB谓词索引 (predicate_index): O(1)规则查找
@@ -153,10 +153,8 @@ class KB:
         self.diagnostic_mode = False
         self.last_failure = None
         self.causal_chains: List[Dict] = []  # 因果链
-        # v0.11.0: 谓词索引 — O(1) 规则/事实查找
         self.predicate_index: Dict[str, List[Rule]] = defaultdict(list)
         self.fact_index: Dict[str, List[Term]] = defaultdict(list)
-        # v0.11.0: 一致性缓存
         self._consistency_cache: Optional['HealthReport'] = None
         self._cache_dirty: bool = True
 
@@ -220,7 +218,6 @@ class KB:
         kb = KB()
         kb.facts = self.facts.copy()
         kb.rules = self.rules.copy()
-        # 重建索引
         for f in kb.facts:
             kb.fact_index[f.name].append(f)
         for r in kb.rules:
@@ -253,9 +250,7 @@ class KB:
                 solutions.append({'binding': ns, 'score': 1.0, 'trace': InferenceTrace(InferenceStep(None, None, goal, ns.copy()), ns)})
             except UnificationError: pass
             return
-        # v0.11.0: 使用 fact_index 精确过滤候选事实（O(1)，再做合一）
         candidate_facts = self.fact_index.get(goal.name, [])
-        # dynamic facts (passed via `facts`) 也要包含
         if facts is not self.facts:
             extra = [f for f in facts if f not in self.facts and f.name == goal.name]
             candidate_facts = candidate_facts + extra
@@ -265,7 +260,6 @@ class KB:
                 score = 1.0 if not chain else specificity_score(chain[-1])
                 solutions.append({'binding': ns, 'score': score, 'trace': InferenceTrace(InferenceStep(None, fact, goal, ns.copy()), ns)})
             except UnificationError: continue
-        # v0.11.0: 使用 predicate_index 精确过滤候选规则（O(1)）
         for rule in self.predicate_index.get(goal.name, []):
             try:
                 ns = unify(goal, rule.head, subst.copy())
@@ -800,7 +794,6 @@ class Arbiter:
         """根据查询分析选择候选推理方法，按优先级排序。
         降权方法（成功率<30%）保持在候选集中，但优先级调至最后。"""
         info = self.analyze_goal(goal)
-        # v0.11.0 fix: 提前计算 _goal_type，确保 sort_key 能正确查到历史得分
         info['_goal_type'] = self._classify_goal_type(goal)
         candidates = []
 
@@ -1641,7 +1634,6 @@ class MCPBridge:
     def _handle_dream(self, params):
         return {"dream": self.agent.dream.dream_now()}
 
-    # v0.11.0: 令牌管理
     def generate_token(self, caller_name: str, level: str) -> str:
         """生成调用者令牌并注册到白名单"""
         token = hashlib.sha256(f"{caller_name}:{level}:{time.time()}".encode()).hexdigest()[:16]
@@ -1798,10 +1790,437 @@ def collect_warnings(trace: Optional[InferenceTrace]) -> List[str]:
     return warnings
 
 # ============================================================
+# 13.5 ConfigLoader — OpenClaw 配置体系对齐
+# ============================================================
+class ConfigLoader:
+    """OpenClaw 配置文件加载器。
+
+    读取三个可选的 Markdown 配置文件（零依赖，纯文本解析）：
+    - AGENTS.md   定义启用的模块和能力
+    - SOUL.md     定义身份、价值观与原则
+    - USER.md     定义用户偏好（语言、输出格式、记忆上限等）
+
+    文件格式示例（SOUL.md）：
+        ## Identity
+        - name: SanLife
+        - version: 0.11.0
+
+        ## Values
+        - sovereignty: inviolable
+        - purpose: assist users faithfully
+
+    未找到文件时返回默认值，不抛出异常。
+    """
+
+    # 默认配置
+    SOUL_DEFAULTS: Dict[str, Any] = {
+        "name": "SanLife",
+        "version": "0.11.0",
+        "sovereignty": "inviolable",
+        "purpose": "assist users faithfully",
+        "principles": ["zero external dependency", "local first", "user sovereignty"],
+    }
+    AGENTS_DEFAULTS: Dict[str, Any] = {
+        "dream_engine": True,
+        "knowledge_graph": True,
+        "reality_supervisor": True,
+        "mcp_bridge": True,
+        "auto_skill_learner": True,
+        "arbiter": True,
+        "reasoning_methods": list(m.value for m in ReasoningMethod),
+    }
+    USER_DEFAULTS: Dict[str, Any] = {
+        "language": "auto",
+        "output_format": "text",
+        "memory_limit": 1000,
+        "max_search_results": 5,
+        "show_think_log": False,
+        "dream_interval_sec": 30,
+    }
+
+    def __init__(self, config_dir: str = "."):
+        self.config_dir = Path(config_dir)
+        self.soul: Dict[str, Any] = {}
+        self.agents: Dict[str, Any] = {}
+        self.user: Dict[str, Any] = {}
+        self._loaded_files: List[str] = []
+
+    def load(self) -> "ConfigLoader":
+        """加载所有配置文件（不存在则使用默认值）"""
+        self.soul = self._load_file("SOUL.md", self.SOUL_DEFAULTS)
+        self.agents = self._load_file("AGENTS.md", self.AGENTS_DEFAULTS)
+        self.user = self._load_file("USER.md", self.USER_DEFAULTS)
+        return self
+
+    def _load_file(self, filename: str, defaults: Dict) -> Dict:
+        """解析单个 Markdown 配置文件。
+        支持 `- key: value` 行和 `## Section` 标题。
+        """
+        path = self.config_dir / filename
+        result: Dict[str, Any] = dict(defaults)
+        if not path.exists():
+            return result
+        try:
+            text = path.read_text(encoding="utf-8")
+        except Exception:
+            return result
+        self._loaded_files.append(filename)
+        current_section = "_root"
+        for line in text.splitlines():
+            line = line.rstrip()
+            if not line or line.startswith("#"):
+                if line.startswith("## "):
+                    current_section = line[3:].strip().lower().replace(" ", "_")
+                continue
+            m = re.match(r"^\s*-\s+(\w[\w\s\-]*?)\s*:\s*(.+)$", line)
+            if m:
+                key, value = m.group(1).strip().replace(" ", "_").lower(), m.group(2).strip()
+                parsed = self._parse_value(value)
+                if current_section == "_root":
+                    result[key] = parsed
+                else:
+                    if current_section not in result:
+                        result[current_section] = {}
+                    if isinstance(result[current_section], dict):
+                        result[current_section][key] = parsed
+                    else:
+                        result[key] = parsed
+                # Also flatten to root level for direct access
+                result[key] = parsed
+        return result
+
+    @staticmethod
+    def _parse_value(v: str) -> Any:
+        """将字符串值解析为 Python 原生类型"""
+        if v.lower() in ("true", "yes", "on"):
+            return True
+        if v.lower() in ("false", "no", "off"):
+            return False
+        try:
+            return int(v)
+        except ValueError:
+            pass
+        try:
+            return float(v)
+        except ValueError:
+            pass
+        if "," in v:
+            return [x.strip() for x in v.split(",") if x.strip()]
+        return v
+
+    def write_defaults(self):
+        """将默认配置写入对应 Markdown 文件（仅在文件不存在时）"""
+        self._write_if_absent("SOUL.md", self._render_soul())
+        self._write_if_absent("AGENTS.md", self._render_agents())
+        self._write_if_absent("USER.md", self._render_user())
+
+    def _write_if_absent(self, filename: str, content: str):
+        path = self.config_dir / filename
+        if not path.exists():
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            except Exception:
+                pass
+
+    def _render_soul(self) -> str:
+        return (
+            "# SOUL — 身份与价值观 (Identity & Values)\n\n"
+            "## Identity\n"
+            f"- name: {self.SOUL_DEFAULTS['name']}\n"
+            f"- version: {self.SOUL_DEFAULTS['version']}\n\n"
+            "## Values\n"
+            f"- sovereignty: {self.SOUL_DEFAULTS['sovereignty']}\n"
+            f"- purpose: {self.SOUL_DEFAULTS['purpose']}\n\n"
+            "## Principles\n"
+            + "".join(f"- principle: {p}\n" for p in self.SOUL_DEFAULTS['principles'])
+        )
+
+    def _render_agents(self) -> str:
+        lines = ["# AGENTS — 模块配置 (Module Configuration)\n\n## Modules\n"]
+        for k, v in self.AGENTS_DEFAULTS.items():
+            if k == "reasoning_methods":
+                continue
+            lines.append(f"- {k}: {str(v).lower()}\n")
+        lines.append("\n## ReasoningMethods\n")
+        lines.append(f"- enabled: {', '.join(self.AGENTS_DEFAULTS['reasoning_methods'])}\n")
+        return "".join(lines)
+
+    def _render_user(self) -> str:
+        lines = ["# USER — 用户偏好 (User Preferences)\n\n## Preferences\n"]
+        for k, v in self.USER_DEFAULTS.items():
+            lines.append(f"- {k}: {v}\n")
+        return "".join(lines)
+
+    def get_identity_name(self) -> str:
+        return str(self.soul.get("name", self.SOUL_DEFAULTS["name"]))
+
+    def module_enabled(self, name: str) -> bool:
+        modules = self.agents.get("modules", self.agents)
+        v = modules.get(name, self.AGENTS_DEFAULTS.get(name, True))
+        return bool(v)
+
+    def get_user_pref(self, key: str, default: Any = None) -> Any:
+        prefs = self.user.get("preferences", self.user)
+        if isinstance(prefs, dict) and key in prefs:
+            return prefs[key]
+        return self.user.get(key, self.USER_DEFAULTS.get(key, default))
+
+
+# ============================================================
+# 13.6 LocalInferenceEngine — ds4 本地推理引擎接口对齐
+# ============================================================
+class LocalInferenceEngine:
+    """ds4 本地推理引擎接口。
+
+    提供可编程的 Python API，与 MCP 协议桥接互补：
+    - MCP  针对进程间 JSON 协议（stdin/stdout）
+    - LocalInferenceEngine 针对进程内 Python 直接调用
+
+    用法示例::
+
+        from pangu_v0_11_0 import LocalInferenceEngine
+
+        engine = LocalInferenceEngine()
+        result = engine.infer("grandparent(a, _Who)")
+        print(result)          # {"success": True, "result": "{_Who: c}", ...}
+
+        engine.learn("parent(d, e).")
+        engine.remember("king(d).")
+        print(engine.health())
+        print(engine.search("parent"))
+
+    所有方法均为同步调用，线程安全（通过内部锁保护）。
+    """
+
+    def __init__(self, config_dir: str = ".", memory_dir: str = MEMORY_DIR,
+                 enable_dream: bool = True):
+        self._lock = threading.Lock()
+        cfg = ConfigLoader(config_dir).load()
+        self._agent = SuperBrainAgent(memory_dir=memory_dir, _config=cfg)
+        if not enable_dream:
+            self._agent.dream.stop()
+        self._cfg = cfg
+
+    # ------------------------------------------------------------------
+    # 推理
+    # ------------------------------------------------------------------
+    def infer(self, goal_str: str, method: str = "auto") -> Dict[str, Any]:
+        """推理单个目标。
+
+        Args:
+            goal_str: 目标谓词字符串，如 ``grandparent(a, _Who)``
+            method:   推理方法名（``auto`` / ``cot`` / ``tot`` / …）
+                      ``auto`` 表示由仲裁器自动选择
+
+        Returns:
+            ::
+
+                {
+                    "success": bool,
+                    "result":  str,          # 变量绑定字典的字符串
+                    "method":  str,          # 实际使用的推理方法
+                    "thinking": str,         # 推理过程日志（可选）
+                }
+        """
+        with self._lock:
+            try:
+                goal = parse_term(goal_str)
+            except Exception as e:
+                return {"success": False, "error": f"parse error: {e}"}
+            try:
+                if method == "auto":
+                    binding, trace, thinking = self._agent.arbiter.reason(
+                        goal, self._agent.cognitive
+                    )
+                    last = self._agent.arbiter.get_last_result() or {}
+                    used_method = last.get("method_used", "auto")
+                else:
+                    rm = self._get_method(method)
+                    binding, trace, thinking = self._agent.cognitive.reason(goal, rm)
+                    used_method = method
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+            if binding is not None:
+                return {
+                    "success": True,
+                    "result": str(binding),
+                    "method": used_method,
+                    "thinking": thinking if self._cfg.get_user_pref("show_think_log") else "",
+                }
+            return {"success": False, "result": None, "method": used_method,
+                    "error": "No solution found"}
+
+    def infer_all(self, goal_str: str) -> Dict[str, Any]:
+        """用全部 16 种推理方法对同一目标推理，返回结果对比（同 MCP reason）。"""
+        with self._lock:
+            try:
+                goal = parse_term(goal_str)
+            except Exception as e:
+                return {"success": False, "error": f"parse error: {e}"}
+            results: Dict[str, Dict] = {}
+            for rm in [ReasoningMethod.COT, ReasoningMethod.TOT, ReasoningMethod.DECOMP,
+                       ReasoningMethod.STEPBACK, ReasoningMethod.SELF_REFINE]:
+                try:
+                    binding, _, thinking = self._agent.cognitive.reason(goal, rm)
+                    results[rm.value] = {
+                        "result": str(binding) if binding else None,
+                        "thinking": thinking,
+                    }
+                except Exception as e:
+                    results[rm.value] = {"error": str(e)}
+            return results
+
+    # ------------------------------------------------------------------
+    # 学习
+    # ------------------------------------------------------------------
+    def learn(self, rule_str: str, force: bool = False) -> Dict[str, Any]:
+        """向知识库添加事实或规则。
+
+        Args:
+            rule_str: 规则/事实字符串，如 ``parent(a, b).``
+                      或 ``grandparent(_X, _Z) :- parent(_X, _Y), parent(_Y, _Z)``
+            force:    跳过孤儿/环一致性检查（等同于 ``强制添加规则``）
+
+        Returns:
+            ``{"success": bool, "message": str}``
+        """
+        with self._lock:
+            try:
+                rule = parse_rule_from_string(rule_str)
+                if not rule.body:
+                    # Pure fact (no body) — add directly to KB without consistency checks
+                    self._agent.kb.add_fact(rule.head)
+                    msg = f"Learned fact: {rule.head}"
+                else:
+                    self._agent.kb.add_rule(rule, force=force)
+                    msg = f"Learned: {rule}"
+                self._agent.memory.remember({"type": "learned_rule", "content": str(rule)})
+                return {"success": True, "message": msg}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+    # ------------------------------------------------------------------
+    # 记忆
+    # ------------------------------------------------------------------
+    def remember(self, fact_str: str) -> Dict[str, Any]:
+        """存储事实到持久记忆，同时加入知识库。
+
+        Args:
+            fact_str: 谓词事实字符串，如 ``mother(zhang3, zhang_mom)``
+
+        Returns:
+            ``{"success": bool, "stored": str}``
+        """
+        with self._lock:
+            try:
+                t = parse_term(fact_str)
+                self._agent.memory.remember({"type": "user_fact", "content": str(t)})
+                self._agent.kb.add_fact(t)
+                return {"success": True, "stored": str(t)}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+    def recall(self, query: str) -> Dict[str, Any]:
+        """从持久记忆中召回相关条目。
+
+        Returns:
+            ``{"memories": [{"id": ..., "content": ..., "type": ...}]}``
+        """
+        with self._lock:
+            memories = self._agent.memory.recall(query)
+            return {"memories": memories}
+
+    # ------------------------------------------------------------------
+    # 知识图谱搜索
+    # ------------------------------------------------------------------
+    def search(self, query: str) -> Dict[str, Any]:
+        """在知识图谱中搜索实体或关系。
+
+        Returns:
+            ``{"results": [...]}``
+        """
+        with self._lock:
+            results = self._agent.kg.search(query)
+            return {"results": results}
+
+    # ------------------------------------------------------------------
+    # 健康报告
+    # ------------------------------------------------------------------
+    def health(self) -> Dict[str, Any]:
+        """返回知识库健康报告。
+
+        Returns:
+            ``{"rules": int, "facts": int, "orphans": [...], "cycles": [...],
+               "trust_score": float}``
+        """
+        with self._lock:
+            report = self._agent.kb.get_consistency_report()
+            return {
+                "rules": report.total_rules,
+                "facts": report.total_facts,
+                "orphans": [str(r) for r in report.orphans],
+                "cycles": report.cycles,
+                "trust_score": self._agent.supervisor.get_trust_score(),
+                "skills": len(self._agent.memory.get_skills()),
+            }
+
+    # ------------------------------------------------------------------
+    # 梦境
+    # ------------------------------------------------------------------
+    def dream(self) -> Dict[str, Any]:
+        """立即触发一次梦境反思。
+
+        Returns:
+            ``{"dream": str}``
+        """
+        with self._lock:
+            log = self._agent.dream.dream_now()
+            return {"dream": log}
+
+    # ------------------------------------------------------------------
+    # 内省
+    # ------------------------------------------------------------------
+    def soul_info(self) -> Dict[str, Any]:
+        """返回当前 SOUL 配置（身份、价值观）。"""
+        return {
+            "identity": self._cfg.get_identity_name(),
+            "soul": self._cfg.soul,
+        }
+
+    def agents_info(self) -> Dict[str, Any]:
+        """返回当前 AGENTS 配置（已启用模块）。"""
+        return {"agents": self._cfg.agents}
+
+    def user_prefs(self) -> Dict[str, Any]:
+        """返回当前 USER 配置（用户偏好）。"""
+        return {"user": self._cfg.user}
+
+    # ------------------------------------------------------------------
+    # 内部辅助
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _get_method(name: str) -> ReasoningMethod:
+        name_up = name.upper()
+        for rm in ReasoningMethod:
+            if rm.value == name.lower() or rm.name == name_up:
+                return rm
+        return ReasoningMethod.COT
+
+    def stop(self):
+        """停止后台梦境引擎线程（在程序退出前调用）。"""
+        self._agent.dream.stop()
+
+
+# ============================================================
 # 14. 超级智能体主类 (整合所有模块)
 # ============================================================
 class SuperBrainAgent:
-    def __init__(self, memory_dir=MEMORY_DIR):
+    def __init__(self, memory_dir=MEMORY_DIR, _config: Optional["ConfigLoader"] = None):
+        # 加载 OpenClaw 配置（优先使用传入的配置，否则从当前目录加载）
+        self.config: ConfigLoader = _config if _config is not None else ConfigLoader().load()
+        identity_name = self.config.get_identity_name()
+
         self.kb = KB()
         self.memory = PersistentMemory(memory_dir)
         self.kg = KnowledgeGraph()
@@ -1813,7 +2232,7 @@ class SuperBrainAgent:
         self.arbiter = Arbiter(self.kb, memory_dir)
         self.mcp = MCPBridge(self)
         self.nlp = NLMatcher()
-        self.bone = BoneGuard()
+        self.bone = BoneGuard(identity_name)
         self.last_result = None
         self.attempts = 0
         self._pending_context: Optional[Dict] = None  # multi-turn context
@@ -2118,7 +2537,6 @@ class SuperBrainAgent:
                     else:
                         print("[梦境] 无被替代的规则")
                 return []
-
             elif fact.name == "mcp_list":
                 callers = self.mcp.list_callers()
                 if callers:
@@ -2281,7 +2699,7 @@ if __name__ == "__main__":
             except (EOFError, KeyboardInterrupt):
                 break
     else:
-        print("盘古 v0.11.0 [索引] 已启动 | 16种认知架构 | 4D记忆 | 梦境引擎 | 知识图谱 | MCP桥接")
+        print("盘古 v0.11.0 [索引] 已启动 | 16种认知架构 | 4D记忆 | 梦境引擎 | 知识图谱 | MCP桥接 | OpenClaw配置 | ds4接口")
         print("输入 exit 退出。输入 help 查看命令。")
         while True:
             try:

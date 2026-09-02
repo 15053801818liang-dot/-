@@ -181,7 +181,7 @@ python pangu_v0.12.0.py
 ```
 盘古/
 ├── pangu_v0.12.0.py       # 主程序（单文件，零依赖）v0.12.0 圆满
-├── pangu_v0.11.0.py        # 上一版本
+├── pangu_v0.11.0.py        # 上一版本（含 OpenClaw ConfigLoader / LocalInferenceEngine）
 ├── pangu_v0.10.0.py        # 上上版本
 ├── rules/
 │   ├── builtin.super       # 内置规则文件（扩展用）
@@ -223,6 +223,8 @@ python pangu_v0.12.0.py
 | v0.3.0 | 通幽 | 2024-12-15 |
 | v0.2.0 | 立骨 | 2024-12-01 |
 | v0.1.0 | 开天 | 2024-11-20 |
+
+> 历史版本说明：`pangu_v0.11.0.py` 额外包含 OpenClaw ConfigLoader 与 ds4 LocalInferenceEngine 参考实现。
 
 详见 `CHANGELOG.md`。
 
