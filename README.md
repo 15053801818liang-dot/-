@@ -34,20 +34,20 @@
 |---|---|
 | **路径** | `盘古/` |
 | **语言** | Python 3.8+（纯标准库，零外部依赖） |
-| **版本** | v0.11.0 |
+| **版本** | v0.12.0 "圆满" |
 | **核心能力** | 合一回溯推理 · 16 种认知引擎（CoT/ToT/MCTS/ReAct/苏格拉底…） · 4D 持久记忆 · 梦境引擎 · 知识图谱 · 骨骼守护 · MCP 协议桥接 · 显式/隐式/反例规则学习 · 一致性证明 |
 
 **架构**：`SuperBrainAgent` → `BoneGuard`（安全）+ `NLMatcher`（NLP 解析）+ `SessionMemory` + `SelfReflect` → `KB`（Facts/Rules/ConsistencyChecker）→ `LearningSubsystem`（Explicit/Implicit/Negative）
 
 ```bash
 # 运行 REPL
-cd 盘古 && python3 pangu_v0.11.0.py
+cd 盘古 && python3 pangu_v0.12.0.py
 
 # MCP 模式（JSON stdin/stdout）
-python3 pangu_v0.11.0.py --mcp
+python3 pangu_v0.12.0.py --mcp
 
 # 测试
-python3 test_pangu_v0.10.0.py && python3 test_comprehensive.py && python3 test_pangu_v011.py
+python3 test_pangu_v0.10.0.py && python3 test_comprehensive.py && python3 test_pangu_v011.py && python3 test_pangu_v012.py
 ```
 
 **文档**：[README](盘古/README.md) · [ARCHITECTURE](盘古/ARCHITECTURE.md) · [MCP API](盘古/MCP_API.md) · [CHANGELOG](盘古/CHANGELOG.md)
